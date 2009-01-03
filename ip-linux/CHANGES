@@ -1,0 +1,43 @@
+Version 0.3.1
+(6 December 2004)
+http://svn.klencke.net/svn/libip_udp/tags/0.3.1
+-----------------------------------------------
+
+- Clearer wording in HTML output.
+- Fix segfault in inet_checksum when called
+  when buf[buflen] is at an unallocated page
+  and buflen is odd. (hardly ever happens)
+
+
+Version 0.3
+(5 December 2004)
+http://svn.klencke.net/svn/libip_udp/tags/0.3
+---------------------------------------------
+
+- Show corrupt/dropped packets in simplelog
+  using different colors.
+- XML logger with XSLT transformation for
+  HTML output added.
+- Listening UDP socket uses SO_REUSEADDR to
+  fix problems on some systems.
+
+
+Version 0.2
+(22 October 2004)
+http://svn.klencke.net/svn/libip_udp/tags/0.2
+---------------------------------------------
+
+- Packet Loss
+- Simple Monitor Tool
+- ANSI C Compile Fix
+- Specify real peer IP address
+- Specify real log IP address
+
+
+Version 0.1
+(18 October 2004)
+http://svn.klencke.net/svn/libip_udp/tags/0.1
+----------------------------------------------
+
+This is the first release.
+

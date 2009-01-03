@@ -1,0 +1,37 @@
+This is a packet logger with xml output for libip_udp. To use it, do
+the following at the terminal where you want the packets to get logged
+from and do:
+
+$ export LOG_PACKETS=1
+
+So to log all packets, you have to do this at both the server and the client.
+Then start the logger, it will log to stdout:
+
+$ ./xmllog
+
+To stop the logger, you have to press control-D (End Of File) so that the
+logger can write the closing tags before exiting.
+
+The xml format makes it easy to transform the data with xsl-transformations.
+An example transformation is given in the html/ dir, which transforms the
+xml data to html.
+
+The htmllog.sh script uses this transformation to produce html output just
+like xmllog produces xml output.
+
+$ ./htmllog.sh > html/log.html
+
+Note that the html output needs the html/htmllog.css file to be in the same
+directory.
+
+Also note that the HTML stylesheet by default assumes that the two
+addresses are 192.168.0.1 and 192.168.0.2 (ETH=1 and ETH=2). To use other
+addresses, change the variables in htmllog.xsl.
+
+-----------
+BIG WARNING
+-----------
+
+We're not sure if the order of the logged packets is always right, therefore,
+don't trust this tool too much.
+
