@@ -27,6 +27,7 @@
 #define DATA_SHIFT  12
 #define WORD_SIZE   4
 
+#define MIN(a,b) (a) < (b) ? (a) : (b) 
 typedef unsigned char uchar;
 typedef unsigned short ushort;
 
