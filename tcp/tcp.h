@@ -86,7 +86,8 @@ typedef struct _TCPCtl {
     u32_t remote_ackno;
     u32_t remote_seqno;
     
-    Data* dat;
+    Data* in_buffer;
+	Data* out_buffer;
     int remaining;
 } TCPCtl;
 
@@ -121,4 +122,10 @@ void dump_header(Header* hdr);
 void dump_buffer(uchar* dat, int len);
 void swap_header(Header* hdr, int ntoh);
 
+// more support functions
+int handle_packets ();
+int send_ack () ;
+int setup_packet (Header *hdr );
+int wait_for_ack ();
+int write_packet (char * buf, int len );
 #endif
