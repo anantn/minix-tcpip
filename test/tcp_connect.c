@@ -5,7 +5,7 @@ main(int argc, char** argv)
 {
 	char info[15] = "hello world!" ;
    	ipaddr_t dst_ip = inet_addr("192.168.0.1");
-    int sport = 9000;
+//    int sport = 9000;
     int dport = 3000;
 	int len = 12 ;
 	int ret ;

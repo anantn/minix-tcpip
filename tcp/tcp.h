@@ -130,11 +130,12 @@ int setup_packet (Header *hdr );
 int wait_for_ack ();
 int write_packet (char * buf, int len );
 
-int handle_Closed_state (Header hdr, Data dat);
-int handle_Listen_state (Header hdr, Data dat);
-int handle_Syn_Sent_state  (Header hdr, Data dat);
-int handle_Syn_Recv_state (Header hdr, Data dat);
-int handle_Established_state (Header hdr, Data dat);
+// state handling functions
+int handle_Closed_state (Header *hdr, Data *dat);
+int handle_Listen_state (Header *hdr, Data *dat);
+int handle_Syn_Sent_state  (Header *hdr, Data *dat);
+int handle_Syn_Recv_state (Header *hdr, Data *dat);
+int handle_Established_state (Header *hdr, Data *dat);
 
 
 #endif

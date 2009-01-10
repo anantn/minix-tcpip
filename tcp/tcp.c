@@ -76,7 +76,9 @@ recv_tcp_packet(Header* hdr, Data* dat)
      */
     doff = (hdr->flags >> DATA_SHIFT) * WORD_SIZE;
     dat->len = len - doff;    
-    dat->content = (uchar*)calloc(dat->len, sizeof(uchar));
+    dat->content = (uchar*)calloc(dat->len, sizeof(uchar)); 
+	// this memory is to be freed by calling function
+	// it's freed in handle_packets function
     memcpy(dat->content, (uchar*)data + doff, dat->len);
 	dprint ("packet received : Printing header and data\n");
 	dump_header(hdr);
@@ -89,14 +91,19 @@ recv_tcp_packet(Header* hdr, Data* dat)
 int
 tcp_socket()
 {
+	TCPCtl * cc ; // current_connection
+
+
     TCPCtl* ctl;
     if (!ip_init()) {
 //		return 0;
 	}
 
-    Head = (TCPMux*)calloc(1, sizeof(TCPMux));
+    Head = (TCPMux*)calloc(1, sizeof(TCPMux)); // FIXME :need to create linked list
     ctl = (TCPCtl*)calloc(1, sizeof(TCPCtl));
 
+	// all memory alloted here will be freed in socket_close call.
+	
 	// allocating memory for incomming buffer
 	ctl->in_buffer = (Data*)calloc(1, sizeof(Data));
 	ctl->in_buffer->content = (uchar*)calloc(DATA_SIZE, sizeof(uchar));
@@ -118,12 +125,17 @@ tcp_socket()
     Head->this = ctl;
     Head->next = NULL;
        
-    return 1;
+	cc = Head->this ;
+
+	cc->local_seqno = 100 ; // FIXME : better way to set initial seq-no ..???
+	cc->remote_ackno = 0 ; // has to be set in three way handshake
+	cc->remote_seqno = 0 ;  // has to be set in three way handshake
+	cc->remote_window = DATA_SIZE ;  // has to be set in three way handshake
+    return 1; // FIXME : checkup for failure of tcp_socket
 }
 
 
 /* Connection oriented part */
-
 
 
 int
@@ -132,20 +144,53 @@ tcp_connect (ipaddr_t dst, int port )
 	TCPCtl * cc ; // current_connection
 	cc = Head->this ;
 	/* Do three way handshake */
+	Header hdr ;
+	Data dat ;
+	int bytes_sent ;
 
 	/* make sure that tcp_socket is called before calling this function */
-	
-	// now change the state
-	cc->type = TCP_CONNECT ;
-	cc->state = Established ;
-	cc->local_seqno = 10 ;
-	cc->remote_ackno = 10 ;
-	cc->remote_seqno = 1;
-	cc->remote_window = DATA_SIZE ;
 
+	// clear variables
+	memset (&hdr, 0, sizeof (hdr));
+	memset (&dat, 0, sizeof (dat));
+
+	dat.content = (uchar*)calloc(DATA_SIZE, sizeof(uchar));
+	dat.len = 0 ;
+
+	// setting up status variables for this connection
+	cc->type = TCP_CONNECT ;
+	cc->local_seqno = 100 ; // FIXME : better way to set initial seq-no ..???
 	Head->dport = port ;
 	Head->dst = dst ;
-	return 1 ; // return proper value
+	Head->sport = 6000 ; // FIXME : better way to assign local port
+	cc->state = Syn_Sent ; 
+
+	// setup packet
+	setup_packet (&hdr);
+
+	// resetting the flags to be the first SYN packet
+	hdr.flags = 0 ; // clearing flags first
+	hdr.flags = (HEADER_SIZE / WORD_SIZE) << DATA_SHIFT;   
+	hdr.flags = hdr.flags | SYN ; // setup default flags
+
+	// now, send the packet
+	bytes_sent = send_tcp_packet (&hdr, &dat);
+	
+	free (dat.content) ;
+
+	if (bytes_sent == -1 )
+	{
+		dprint ("Error: send_tcp_packet failed\n");	
+		exit(1);
+	}
+	do
+	{
+		handle_packets ();
+	}
+	while (cc->state != Established ); 
+
+	return 1 ; // FIXME:return proper value
+
 } // end function : tcp_connect
 
 /* tcp listen : */
@@ -160,17 +205,19 @@ tcp_listen (int port, ipaddr_t *src)
 	
 	// now change the state
 	cc->type = TCP_LISTEN ;
-	cc->state = Established ;
-	cc->local_seqno = 1 ;
-	cc->remote_ackno = 1;
-	cc->remote_seqno = 10; 
-	cc->remote_window = DATA_SIZE ;
+	cc->state = Listen ; 
+	cc->local_seqno = 800 ; // FIXME : better way to set initial seq-no ..???
 
-	// will get these value from three way handshake
-	Head->dst = inet_addr("192.168.0.2"); 	
-	Head->dport = 6000 ;
+	do
+	{
+		handle_packets ();
+	}
+	while (cc->state != Established ); 
 
-	return 1 ; // return proper value
+	return 1 ; // FIXME:return proper value
+
+
+
 } // end function : tcp_listen ()
 
 int
@@ -267,8 +314,10 @@ write_packet (char * buf, int len )
 		ack_no = wait_for_ack () ;
 	}
 	while (ack_no != (cc->local_seqno + len )  );
+	//FIXME :need to worry about overflowing in comparision 
 	dprint ("write:packet:Packet sent successfully\n");
 	cc->local_seqno = cc->local_seqno + len ; // updating local seq no.
+	//FIXME :need to worry about overflowing
 	return len ;
 } // end function : write_packet
 
@@ -304,19 +353,35 @@ int setup_packet (Header *hdr )
 	hdr->urgent = 1 ;
 	// setup flags ; FIXME : need to fix this part
 	hdr->flags = 0 ; // clearing flags first
-	hdr->flags = URG | ACK | PSH ;
-	hdr->flags = (HEADER_SIZE / WORD_SIZE) << DATA_SHIFT; // why..???
+	hdr->flags = (HEADER_SIZE / WORD_SIZE) << DATA_SHIFT; //  
+	hdr->flags = hdr->flags | URG | ACK | PSH ; // setup default flags
 
 	return 1 ; 
 } // end function : setup_packet
 
-
 int
 tcp_close (void)
+{
+
+	TCPCtl * cc ; // current_connection
+	cc = Head->this ;
+
+	// send FIN and start 4-way closing procedure
+	return 1 ;
+}
+
+// A function which will release all resources alloted to socket
+int
+socket_close (void)
 {
 	TCPCtl * cc ; // current_connection
 	cc = Head->this ;
 	cc->state = Closed ;
+	free (cc->in_buffer->content);
+	free (cc->out_buffer->content);
+	free (cc->in_buffer);
+	free (cc->out_buffer);
+
 	
 	return 1 ;
 } // end function : tcp_close()
@@ -335,8 +400,6 @@ handle_packets ()
 	cc = Head->this ;
 
 	dprint ("handle_packet: state = %d, waiting for packet\n", cc->state  );
-	dat.content = (uchar*)calloc(DATA_SIZE, sizeof(uchar));
-	memset (dat.content, 0, DATA_SIZE);
 	do
 	{
 		len = recv_tcp_packet (&hdr, &dat) ;
@@ -346,57 +409,163 @@ handle_packets ()
 	switch (cc->state )
 	{
 		case Closed : dprint("Handle packet: dealing with closed state\n");
-						ret = handle_Closed_state (hdr,dat) ;
+						ret = handle_Closed_state (&hdr,&dat) ;
 						break ;
 
 		case Listen : dprint("Handle packet: dealing with Listen state\n");
-						ret = handle_Listen_state (hdr, dat);
+						ret = handle_Listen_state (&hdr, &dat);
 						break ;
 
 		case Syn_Sent : dprint("Handle packet: dealing with Syn Sent state\n");
-						ret = handle_Syn_Sent_state (hdr, dat);
+						ret = handle_Syn_Sent_state (&hdr, &dat);
 						break ;
 
 		case Syn_Recv : dprint("Handle packet: dealing with syn_recv state\n");
-						ret = handle_Syn_Recv_state (hdr, dat);
+						ret = handle_Syn_Recv_state (&hdr, &dat);
 						break ;
 
 		case Established:dprint("Handle packet: dealing with established state\n");
-						ret = handle_Established_state (hdr, dat);
+						ret = handle_Established_state (&hdr, &dat);
 						break ;
 
 		default :	dprint ("Not planned for this state yet :-( \n"); 
 						break ;
 
 	} // end switch : connection state
-
+	// freeing up the memory alloted by recv_tcp_packet()
+	free (dat.content);
 	// FIXME : return something meaningfull
 	return 1 ; 
 }
 
-int handle_Closed_state (Header hdr, Data dat)
+int handle_Closed_state (Header *hdr, Data *dat)
 {
 	return 1;	
 }
 
 // handle_Listen_state : should expect syn packet
 // should send syn+ack packet
-// and expect ack packet... 
-int handle_Listen_state (Header hdr, Data dat)
+int handle_Listen_state (Header *hdr, Data *dat)
 {
+	int flags ;
+	TCPCtl * cc ; // current_connection
+	cc = Head->this ;
+
+	flags = hdr->flags ;
+
+	if (!( flags & SYN ) ) 
+	{
+		// didn't get expected packet...
+		// so, tolerating garbage packet
+		// hence, not changing the state
+		dprint ("handle_Listen_state: Got wrong packet, ignoring it\n");
+		return -1 ;
+	}
+	// ok, its SYN packet
+	
+
+	// Get information about other side
+	Head->dst = hdr->src ; 	
+	Head->dport = hdr->sport ;
+	cc->remote_seqno = hdr->seqno + 1; //FIXME :need to worry about overflowing
+	cc->remote_window = hdr->window ; // updating remote window size
+	cc->state = Syn_Recv ; 
+	dprint ("handle_Listen_state: Got Syn, sending SYN+ACK\n");
+
+	send_ack ();
+
 	return 1;	
 }
 
 // handle_Syn_Sent_state : will be called from connect
 // should expect syn+ack packet
 // and should send ack packet
-int handle_Syn_Sent_state  (Header hdr, Data dat)
+int handle_Syn_Sent_state  (Header *hdr, Data *dat)
 {
+	int flags ;
+	TCPCtl * cc ; // current_connection
+	cc = Head->this ;
 
+	flags = hdr->flags ;
+
+	dprint ("handle_Syn_Sent_state: inside function\n");
+	if (!( flags & SYN ) ) 
+	{
+		// didn't get expected packet...
+		// so, tolerating garbage packet
+		// hence, not changing the state
+		dprint ("handle_Syn_Sent_state: got other dan SYN packet, ignoring it\n");
+		return -1 ;
+	}
+		
+	// ok, its SYN packet
+	// check if there is ack with it.
+	if (flags & ACK )
+	{
+		// check if ackno received is correct or not
+		if(cc->local_seqno+1 != hdr->ackno)//FIXME :need to worry about overflowing
+		{
+			// got wrong ack-no... so, ignoring the packet
+		dprint ("handle_Syn_Sent_state: got SYN + ACK packet, bt wrong seq no, ignoring it\n");
+			return -1 ;	
+		}
+
+		dprint ("handle_Syn_Sent_state: got SYN + ACK packet, Acking the SYN\n");
+		// got correct ackno... so, updating variables
+		cc->remote_ackno = hdr->ackno ;
+		cc->local_seqno = hdr->ackno ;
+		cc->remote_seqno = hdr->seqno + 1; //FIXME :need to worry about overflowing
+		cc->remote_window = hdr->window ; // updating remote window size
+		// need to send ack for this
+		cc->state = Established ; 
+		send_ack ();
+		return 1 ;
+	}
+	// got just SYN packet
+	// it's a case of simultaneous OPEN
+	dprint ("handle_Syn_Sent_state: got just SYN, parallel open sending SYN+ACK\n");
+	cc->state = Syn_Recv ; 
+	cc->remote_seqno = hdr->seqno + 1; //FIXME :need to worry about overflowing
+	cc->remote_window = hdr->window ; // updating remote window size
+	send_ack ();
+	
 	return 1;	
 }
-int handle_Syn_Recv_state (Header hdr, Data dat)
+
+
+int handle_Syn_Recv_state (Header *hdr, Data *dat)
 {
+	int flags ;
+	TCPCtl * cc ; // current_connection
+	cc = Head->this ;
+
+	dprint ("handle_Syn_Recv_state: inside function\n");
+	flags = hdr->flags ;
+
+	if (!( flags & ACK ) ) 
+	{
+		// didn't get expected packet...
+		// so, tolerating garbage packet
+		// hence, not changing the state
+	dprint ("handle_Syn_Recv_state: didn't get ACK, so ignoring packet\n");
+		return -1 ;
+	}
+	// got ACK, check if it is corrct ACK
+	if(cc->local_seqno+1 != hdr->ackno)//FIXME :need to worry about overflowing
+	{
+		// got wrong ack-no... so, ignoring the packet
+	dprint ("handle_Syn_Recv_state: got ACK, bt with wrong ACK no, ignoring packet\n");
+		return -1 ;	
+	}
+	
+	// ok, got ACK for my SYN, so moving to Established state
+	cc->remote_ackno = hdr->ackno ;
+	cc->local_seqno = hdr->ackno ;
+//	cc->remote_seqno = hdr->seqno + 1; //FIXME :need to worry about overflowing
+	cc->remote_window = hdr->window ; // updating remote window size
+	// need to send ack for this
+	cc->state = Established ; 
+	dprint ("handle_Syn_Recv_state: got ACK, going ot Established state\n");
 	return 1;	
 }
 
@@ -405,7 +574,7 @@ int handle_Syn_Recv_state (Header hdr, Data dat)
 // 1. data packets
 // 2. ack packets
 // 3. fin packets
-int handle_Established_state (Header hdr, Data dat)
+int handle_Established_state (Header *hdr, Data *dat)
 {
 
 
@@ -413,23 +582,23 @@ int handle_Established_state (Header hdr, Data dat)
 	cc = Head->this ;
 
 	// update the ack number received
-	cc->remote_ackno = hdr.ackno ;
-	cc->remote_window = hdr.window ; // updating remote window size
+	cc->remote_ackno = hdr->ackno ;
+	cc->remote_window = hdr->window ; // updating remote window size
 
 	// check if u have enough space in incoming buffer
-	if (cc->in_buffer->len + dat.len < DATA_SIZE )
+	if (cc->in_buffer->len + dat->len < DATA_SIZE )
 	{
 		// accept the packet
-		dprint("Length: %d\n", dat.len);
-		memcpy(cc->in_buffer->content, dat.content, dat.len);	
-		cc->in_buffer->len += dat.len;
+		dprint("Length: %d\n", dat->len);
+		memcpy(cc->in_buffer->content, dat->content, dat->len);	
+		cc->in_buffer->len += dat->len;
 
 
-		cc->remote_seqno = hdr.seqno + dat.len ;
+		cc->remote_seqno = hdr->seqno + dat->len ; //FIXME :need to worry about overflowing
 
 		// if packet contain data or if it's fin packet,
 		// then only acknowledge it 
-		if (dat.len != 0 )
+		if (dat->len != 0 )
 		{
 			send_ack ();
 		}
@@ -442,7 +611,7 @@ int handle_Established_state (Header hdr, Data dat)
 
 		// if packet contain data or if it's fin packet,
 		// then only acknowledge it 
-		if (dat.len != 0 )
+		if (dat->len != 0 )
 		{
 			send_ack ();
 		}
@@ -457,15 +626,31 @@ int send_ack ()
 	Data dat ;	
 	Header hdr ;
 	int bytes_sent ;
+	TCPCtl * cc ; // current_connection
+	cc = Head->this ;
 
-	dprint("send_ack: sending ack\n");
 	dat.content = (uchar*)calloc(DATA_SIZE, sizeof(uchar));
 	memset (dat.content, 0, DATA_SIZE);
 	memset (&hdr, 0, sizeof (hdr));
 	dat.len = 0 ;
 	setup_packet (&hdr);
-	bytes_sent = send_tcp_packet (&hdr, &dat);
-	dprint("send_ack: ack sent\n");
-	return 1 ; 
 
-}
+	if ( cc->state == Syn_Recv )
+	{
+		// need to send SYN+ACK
+		
+		dprint("send_ack: sending SYN+ACK\n");
+		// setup flags ; FIXME : need to fix this part
+		hdr.flags = 0 ; // clearing flags first
+		hdr.flags = (HEADER_SIZE / WORD_SIZE) << DATA_SHIFT; //  
+		hdr.flags = hdr.flags | SYN | ACK ; // setup default flags
+	}
+	else
+	{
+		dprint("send_ack: sending simple ACK\n");
+	}
+	bytes_sent = send_tcp_packet (&hdr, &dat);
+	dprint("send_ack: sent....\n\n");
+	free (dat.content);
+	return 1 ; 
+} // end function : send_ack 

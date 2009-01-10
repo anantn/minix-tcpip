@@ -7,8 +7,8 @@ main(int argc, char** argv) {
 	char info [DATA_SIZE];
 	ipaddr_t src_ip ;
 	int port_no = 3000 ;
-    Data* dat = (Data*)calloc(1, sizeof(Data));
-    Header* hdr = (Header*)calloc(1, sizeof(Header));
+//    Data* dat = (Data*)calloc(1, sizeof(Data));
+//    Header* hdr = (Header*)calloc(1, sizeof(Header));
     ret = tcp_socket();
 	if (ret == 0 )
 	{
