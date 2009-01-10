@@ -85,6 +85,7 @@ typedef struct _TCPCtl {
     u32_t local_seqno;
     u32_t remote_ackno;
     u32_t remote_seqno;
+	u32_t remote_window ;
     
     Data* in_buffer;
 	Data* out_buffer;
@@ -102,7 +103,7 @@ typedef struct _TCPMux {
 } TCPMux;
 
 /* global state (single connection for now) */
-static TCPMux* Head;
+extern TCPMux* Head;
 
 /* public interface */
 int tcp_socket(void);
@@ -128,4 +129,12 @@ int send_ack () ;
 int setup_packet (Header *hdr );
 int wait_for_ack ();
 int write_packet (char * buf, int len );
+
+int handle_Closed_state (Header hdr, Data dat);
+int handle_Listen_state (Header hdr, Data dat);
+int handle_Syn_Sent_state  (Header hdr, Data dat);
+int handle_Syn_Recv_state (Header hdr, Data dat);
+int handle_Established_state (Header hdr, Data dat);
+
+
 #endif

@@ -63,7 +63,7 @@ dump_header(Header* hdr)
     dprint("SEQ: %d, %0X \n", hdr->seqno, hdr->seqno);
     dprint("ACK: %d, %0X \n", hdr->ackno, hdr->ackno);
     dprint("FLG: %X \n", hdr->flags);
-    dprint("WIN: %X \n", hdr->window);
+    dprint("WIN: %X %d\n", hdr->window, hdr->window);
     dprint("CHK: %X \n", hdr->chksum);
     dprint("URG: %X \n", hdr->urgent);
     dprint("-----------\n");
