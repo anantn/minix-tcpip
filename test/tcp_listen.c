@@ -1,5 +1,10 @@
-#include "tcp.h"
+/* This program can be used to test normal three way handshake */
 
+/* run this program as follows
+ * $ ETH=1 ./tcp_listen */
+
+#include "tcp.h"
+#define ANSWER "Thanx for reply..!!!"
 int
 main(int argc, char** argv) {
 
@@ -19,11 +24,16 @@ main(int argc, char** argv) {
 
 	printf ("listen done, trying to read data\n");
     len = tcp_read (info, DATA_SIZE);
+
     
     printf("Received %d bytes! Dumping content:\n", len);
 //    dump_header(hdr);
     dump_buffer(info,len );
     
+	printf ("Sending reply [%s]\n", ANSWER );
+	strcpy (info, ANSWER);
+	len = strlen (ANSWER);
+    printf("Sent %d bytes!\n", tcp_write(info, len));
     return 1;
 }
 

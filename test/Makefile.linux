@@ -1,6 +1,6 @@
 LDFLAGS = -I../ip-linux/ -I../tcp/ ../tcp/libtcp.a ../ip-linux/libip.a
 
-all: tcp_actual_chksum tcp_send tcp_recv tcp_connect tcp_listen
+all: tcp_actual_chksum tcp_send tcp_recv tcp_connect tcp_listen tcp_connect_parallel
 
 tcp_send: tcp_send.c
 	gcc -g -Wall -o tcp_send tcp_send.c $(LDFLAGS)
@@ -17,5 +17,8 @@ tcp_connect: tcp_connect.c
 tcp_listen: tcp_listen.c
 	gcc -g -Wall -o tcp_listen tcp_listen.c $(LDFLAGS)
 
+tcp_connect_parallel: tcp_connect_parallel.c
+	gcc -g -Wall -o tcp_connect_parallel tcp_connect_parallel.c $(LDFLAGS)
+
 clean:
-	rm -f tcp_send tcp_recv tcp_actual_chksum tcp_connect tcp_listen
+	rm -f tcp_send tcp_recv tcp_actual_chksum tcp_connect tcp_listen tcp_connect_parallel

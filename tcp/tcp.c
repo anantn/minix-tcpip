@@ -23,10 +23,12 @@ send_tcp_packet(Header* hdr, Data* dat)
     memcpy(tmp, (uchar*)hdr, sizeof(Header));
     memcpy(tmp + sizeof(Header), dat->content, dat->len);
     csum = raw_checksum(tmp, sizeof(Header) + dat->len);
+/*	// For detailed Debugging
 	dprint("Checksum calcuated (Network order): %x\n", csum);
 	dprint("Packet sending : header and data dumped\n" );
 	dump_header(hdr);
 	dump_buffer(dat->content, dat->len);
+*/
     memcpy(tmp + CHECK_OFF, (uchar*)&csum, sizeof(u16_t));
 
     len = ip_send(hdr->dst, IP_PROTO_TCP, 2,
@@ -80,10 +82,11 @@ recv_tcp_packet(Header* hdr, Data* dat)
 	// this memory is to be freed by calling function
 	// it's freed in handle_packets function
     memcpy(dat->content, (uchar*)data + doff, dat->len);
+/*	// For detailed Debugging
 	dprint ("packet received : Printing header and data\n");
 	dump_header(hdr);
 	dump_buffer(dat->content, dat->len);
-    
+*/    
     return dat->len;
 }
 
