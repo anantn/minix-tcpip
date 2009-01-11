@@ -48,6 +48,23 @@ swap_header(Header* hdr, int ntoh)
     }
 }
 
+/* shows compact TCP packet */
+void show_packet (Header * hdr, uchar * buf, int len )
+{
+	int i ;
+	dprint ("HDR{");
+    dprint("[%s:%d --> %s:%d] ", inet_ntoa(hdr->src), hdr->sport, inet_ntoa(hdr->dst), hdr->dport) ;
+	dprint ("[S%d:A%d] [W:%d] [", hdr->seqno, hdr->ackno,hdr->window );
+	if (hdr->flags & SYN) dprint( "S");
+	if (hdr->flags & ACK ) dprint( "A");
+	if (hdr->flags & FIN ) dprint( "F");
+	if (hdr->flags & RST) dprint( "R");
+	dprint("]}\nDATA{%d[", len);
+	for (i = 0 ; i < len ; ++i ) dprint ( "%c", buf[i] );
+	dprint ("]}\n");
+
+}
+
 /* Prints a TCP Header */
 void
 dump_header(Header* hdr)

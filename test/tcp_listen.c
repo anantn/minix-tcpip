@@ -8,7 +8,7 @@
 int
 main(int argc, char** argv) {
 
-	int ret, len ;
+	int ret, len, i ;
 	char info [DATA_SIZE];
 	ipaddr_t src_ip ;
 	int port_no = 3000 ;
@@ -28,12 +28,18 @@ main(int argc, char** argv) {
     
     printf("Received %d bytes! Dumping content:\n", len);
 //    dump_header(hdr);
-    dump_buffer(info,len );
+//    dump_buffer(info,len );
+   	printf ("\nData is \n");
+	for (i = 0 ; i < len ; ++i ) printf ("%c", info[i]);
+   	printf ("\nDone\n");
     
 	printf ("Sending reply [%s]\n", ANSWER );
 	strcpy (info, ANSWER);
 	len = strlen (ANSWER);
     printf("Sent %d bytes!\n", tcp_write(info, len));
+	printf ("closing connection\n");
+	tcp_close ();
+   	printf ("\nDone closing\n");
     return 1;
 }
 

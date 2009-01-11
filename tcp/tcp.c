@@ -17,12 +17,13 @@ send_tcp_packet(Header* hdr, Data* dat)
     hdr->src = my_ipaddr;
     hdr->prot = htons(IP_PROTO_TCP);
     hdr->tlen = htons(HEADER_SIZE + dat->len);
-	// For detailed Debugging
+/*	// For detailed Debugging
 	dprint("Checksum calcuated (Network order): %x\n", csum);
 	dprint("Packet sending : header and data dumped\n" );
 	dump_header(hdr);
 	dump_buffer(dat->content, dat->len);
-
+*/
+	show_packet (hdr, dat->content, dat->len);
 
     swap_header(hdr, 0);
     
@@ -84,15 +85,19 @@ recv_tcp_packet(Header* hdr, Data* dat)
 	// this memory is to be freed by calling function
 	// it's freed in handle_packets function
     memcpy(dat->content, (uchar*)data + doff, dat->len);
+/*
 	// For detailed Debugging
 	dprint ("packet received : Printing header and data\n");
 	dump_header(hdr);
 	dump_buffer(dat->content, dat->len);
-    
+*/
+	show_packet (hdr, dat->content, dat->len);
+
     return dat->len;
 }
 
-/* Init TCP: Single connection for now */
+//########### TCP Interface functions ####################
+/* tcp_socket: Single connection for now */
 int
 tcp_socket()
 {
@@ -229,13 +234,20 @@ tcp_read (char *buf, int maxlen )
 	TCPCtl * cc ; // current_connection
 	cc = Head->this ;
 
-	// FIXME : check if the connection from other side is closed...
-	// if yes, then return EOF
+
+	// sanity checks
+	if (buf == NULL || maxlen < 0 ) return -1 ;
+	if (maxlen == 0 ) return 0 ;
 
 	while (cc->in_buffer->len == 0 )
 	{
-		// FIXME : check if the connection from other side is closed...
+		// check if the connection from other side is closed...
 		// if yes, then return EOF
+		if ( can_read (cc->state) ==  0 )
+		{
+			dprint("tcp_write:Error: State is %d, can-not write data\n",cc->state);
+			return EOF; 	
+		}
 		dprint ("tcp_read: no data in read buffer, calling handle packets\n");	
 		handle_packets ();
 	} // end while : buffer empty
@@ -256,7 +268,6 @@ tcp_read (char *buf, int maxlen )
 	return bytes_read ;
 } // end function : tcp_read ()
 
-
 int
 tcp_write (char * buf, int len )
 {
@@ -266,19 +277,21 @@ tcp_write (char * buf, int len )
 	TCPCtl * cc ; // current_connection
 	cc = Head->this ;
 
-	// FIXME:check if the connection from your side is closed...
+	// check if the connection from your side is closed...
 	// if yes, then return error
+	if ( can_write (cc->state) ==  0 )
+	{
+		dprint ("tcp_write: Error : State is %d, can-not write data\n", cc->state);
+		return -1; 	
+	}
 	
 	bytes_left = len ;
-
 	dprint ("tcp_write: writing %d bytes\n", len);
 	while (bytes_left > 0 )
 	{
-		// FIXME:check if the connection from your side is closed...
-		// if yes, then return error
 		packet_size = MIN (cc->remote_window, bytes_left ) ;
 		dprint ("tcp_write: writing %d bytes of packet by calling write_packet\n", packet_size);
-		bytes_sent = write_packet (buf, packet_size ) ;
+		bytes_sent = write_packet (buf, packet_size, 0 ) ;
 
 		// FIXME: upgrade the code for supporting multiple writes to send all data
 		return bytes_sent ;
@@ -288,9 +301,96 @@ tcp_write (char * buf, int len )
 	
 } // end function : tcp_write ()
 
-// private function
 int
-write_packet (char * buf, int len )
+tcp_close (void)
+{
+
+	TCPCtl * cc ; // current_connection
+	cc = Head->this ;
+	Data dat ;
+	int ret ;
+
+
+	// send FIN and start 4-way closing procedure
+	
+	// clear variables
+
+	dat.content = (uchar*)calloc(DATA_SIZE, sizeof(uchar));
+	dat.len = 0 ;
+
+	dprint ("Starting the Close procedure\n");
+	// send FIN packet
+	ret = write_packet (dat.content, dat.len, FIN );	
+	
+	// it means got the ACK for your FIN,
+	// so, lets change the state
+
+	switch (cc->state ) 
+	{	
+
+		case Fin_Wait1 :
+					dprint ("tcp_close : Fin Acknowledged, going to Fin_Wait2\n");
+					cc->state = Fin_Wait2 ;
+					break ;
+
+		case Closing :
+					dprint ("tcp_close: Closing: Fin Acknowledged,  going to Time_Wait\n");
+					cc->state = Time_Wait ;
+					break ;
+
+		case Last_Ack :
+					dprint ("tcp_close: Last_Ack: Fin Acknowledged,  going to Closed state\n");
+					cc->state = Closed ;
+					// FIXME : should call socket_close() here
+					break ;
+
+
+		default :
+					dprint ("tcp_close: error : odd state %d\n", cc->state );
+					break ;
+							
+	} // end switch :
+
+	free (dat.content); 
+	return 1 ;
+} // end function : tcp_close
+
+
+//########### private functions ####################
+// Checks if you can read from socket or not
+int
+can_read (int state)
+{
+	switch (state)
+	{
+		case Established :
+		case Fin_Wait1 :
+		case Fin_Wait2 :
+					return 1 ;
+		default :
+					return 0 ;
+	} // end switch :
+} // end function : can_read ()
+
+// Checks if you can write into socket or not
+int
+can_write (int state)
+{
+	switch (state)
+	{
+		case Established :
+		case Close_Wait :
+					return 1 ;
+		default :
+					return 0 ;
+	} // end switch :
+} // end function : can_write ()
+
+
+// create a tcp packet out of given data and send it
+// also, handle retransmission till you get correct ACK
+int
+write_packet (char * buf, int len, int flags )
 {
 	TCPCtl * cc ; // current_connection
 	Header hdr, copy_of_hdr ;
@@ -300,18 +400,45 @@ write_packet (char * buf, int len )
 
 	cc = Head->this ;
 
-		// clear variables
-		memset (&hdr, 0, sizeof (hdr));
-		memset (&dat, 0, sizeof (dat));
-		// assign data
-		dat.content = buf ;
-		dat.len = len ;
+	// clear variables
+	memset (&hdr, 0, sizeof (hdr));
+	memset (&dat, 0, sizeof (dat));
+	// assign data
+	dat.content = buf ;
+	dat.len = len ;
 
-		// setup packet
-		setup_packet (&hdr);
-		copy_of_hdr = hdr ;
-		cc->local_seqno = cc->local_seqno + len ; // updating local seq no.
-		//FIXME :need to worry about overflowing
+	// setup packet
+	setup_packet (&hdr);
+	// updating local sequence number.
+	cc->local_seqno = cc->local_seqno + len ; // FIXME : handle overflowing 	
+
+	if (flags & FIN )
+	{
+		dprint ("write_packet: writing FIN packet\n");	
+		// resetting the flags to be the FIN packet
+		hdr.flags = hdr.flags | FIN ; // setup default flags
+		
+		// FIN is single bit data, incrementing local_seqno by one
+		if ( len == 0 )	
+		{
+			cc->local_seqno = cc->local_seqno + 1 ; // FIXME : handle overflowing 	
+		}
+		switch ( cc->state )
+		{
+			case Established : 
+							cc->state = Fin_Wait1 ; 
+							dprint ("write_packet: state changed to Fin_Wait1 %d\n", Fin_Wait1);
+							break ;
+
+			case Close_Wait :
+							cc->state =  Last_Ack ; 
+							dprint ("write_packet: state changed to Last_Ack %d\n", Last_Ack);
+							break ;
+		} // end switch :
+	}
+
+	copy_of_hdr = hdr ;
+
 
 	// send the packet
 	do
@@ -332,9 +459,11 @@ write_packet (char * buf, int len )
 	}
 	while (ack_no != cc->local_seqno   );
 	//FIXME :need to worry about overflowing in comparision 
-	dprint ("write:packet:Packet sent successfully\n");
+	
+	dprint ("write_packet:Packet sent successfully\n");
 	return len ;
 } // end function : write_packet
+
 
 int wait_for_ack ()
 {
@@ -373,17 +502,6 @@ int setup_packet (Header *hdr )
 
 	return 1 ; 
 } // end function : setup_packet
-
-int
-tcp_close (void)
-{
-
-	TCPCtl * cc ; // current_connection
-	cc = Head->this ;
-
-	// send FIN and start 4-way closing procedure
-	return 1 ;
-}
 
 // A function which will release all resources alloted to socket
 int
@@ -439,11 +557,31 @@ handle_packets ()
 						ret = handle_Syn_Recv_state (&hdr, &dat);
 						break ;
 
-		case Established:dprint("Handle packet: dealing with established state\n");
+		case Established :dprint("Handle packet: dealing with established state\n");
 						ret = handle_Established_state (&hdr, &dat);
 						break ;
 
-		default :	dprint ("Not planned for this state yet :-( \n"); 
+		case Fin_Wait1 :
+						dprint("Handle packet: dealing with Fin_Wait1 state\n");
+						ret = handle_Established_state (&hdr, &dat);
+						break ;
+
+		case Close_Wait :
+						dprint("Handle packet: dealing with Close_Wait state\n");
+						ret = handle_Established_state (&hdr, &dat);
+						break ;
+
+		case Closing :
+						dprint("Handle packet: dealing with Closing state\n");
+						ret = handle_Established_state (&hdr, &dat);
+						break ;
+
+		case Last_Ack :
+						dprint("Handle packet: dealing with Last_Ack state\n");
+						ret = handle_Established_state (&hdr, &dat);
+						break ;
+
+		default :	dprint ("Not planned for this state yet :-( %d\n", cc->state); 
 						break ;
 
 	} // end switch : connection state
@@ -595,8 +733,6 @@ int handle_Syn_Recv_state (Header *hdr, Data *dat)
 // 3. fin packets
 int handle_Established_state (Header *hdr, Data *dat)
 {
-
-
 	TCPCtl * cc ; // current_connection
 	cc = Head->this ;
 
@@ -614,7 +750,7 @@ int handle_Established_state (Header *hdr, Data *dat)
 	cc->remote_window = hdr->window ; // updating remote window size
 
 	// check if u have enough space in incoming buffer
-	if (cc->in_buffer->len + dat->len < DATA_SIZE )
+	if (( dat->len == 0) || (cc->in_buffer->len + dat->len < DATA_SIZE ) )
 	{
 		// accept the packet
 		dprint("Length: %d\n", dat->len);
@@ -628,7 +764,40 @@ int handle_Established_state (Header *hdr, Data *dat)
 		// then only acknowledge it 
 		if (dat->len != 0 )
 		{
+			if ( hdr->flags & FIN )
+			{
+				dprint ("ACKing the FIN packet (packet had data %d) with ACK no %u\n", dat->len, cc->remote_seqno );
+			}
 			send_ack ();
+		}
+		else
+		{
+			if ( hdr->flags & FIN )
+			{
+				// as FIN flag is 1 bit of data
+				cc->remote_seqno = hdr->seqno + 1 ; //FIXME :need to worry about overflowing
+				dprint("ACKing the FIN packet with ACK no %u\n",cc->remote_seqno);
+				send_ack ();
+				switch ( cc->state )
+				{
+					case Established : 
+										cc->state = Close_Wait ;
+										break ;
+					case Fin_Wait1 : 
+										cc->state = Closing ;
+										break ;
+					case Fin_Wait2 :
+										cc->state = Time_Wait ;
+										break ;
+					default :
+										dprint ("handle_Established_state: some state issue, unexpeced FIN flag received in state %d\n", cc->state );
+				} // end switch : 
+
+			}
+			else
+			{
+				dprint("Simple ACK packet, not acking it\n" );
+			}
 		}
 	}
 	else
@@ -636,19 +805,16 @@ int handle_Established_state (Header *hdr, Data *dat)
 		// discard the packet
 		// send the ack with old ack number and
 		// with smaller window size
-
-		// if packet contain data or if it's fin packet,
-		// then only acknowledge it 
-		if (dat->len != 0 )
-		{
-			send_ack ();
-		}
+		dprint("Packet dropped as lack of buffer: ack sending with old ACK no.\n");
+		send_ack ();
 	}
 	// FIXME : return something meaningfull
 	return 1;	
 }
 
 
+
+// ############ Support functions ##########
 int send_ack ()
 {
 	Data dat ;	
