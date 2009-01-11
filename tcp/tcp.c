@@ -17,18 +17,20 @@ send_tcp_packet(Header* hdr, Data* dat)
     hdr->src = my_ipaddr;
     hdr->prot = htons(IP_PROTO_TCP);
     hdr->tlen = htons(HEADER_SIZE + dat->len);
+	// For detailed Debugging
+	dprint("Checksum calcuated (Network order): %x\n", csum);
+	dprint("Packet sending : header and data dumped\n" );
+	dump_header(hdr);
+	dump_buffer(dat->content, dat->len);
+
+
     swap_header(hdr, 0);
     
     tmp = (uchar*)calloc(sizeof(Header) + dat->len, sizeof(uchar));
     memcpy(tmp, (uchar*)hdr, sizeof(Header));
     memcpy(tmp + sizeof(Header), dat->content, dat->len);
     csum = raw_checksum(tmp, sizeof(Header) + dat->len);
-/*	// For detailed Debugging
-	dprint("Checksum calcuated (Network order): %x\n", csum);
-	dprint("Packet sending : header and data dumped\n" );
-	dump_header(hdr);
-	dump_buffer(dat->content, dat->len);
-*/
+
     memcpy(tmp + CHECK_OFF, (uchar*)&csum, sizeof(u16_t));
 
     len = ip_send(hdr->dst, IP_PROTO_TCP, 2,
@@ -82,11 +84,11 @@ recv_tcp_packet(Header* hdr, Data* dat)
 	// this memory is to be freed by calling function
 	// it's freed in handle_packets function
     memcpy(dat->content, (uchar*)data + doff, dat->len);
-/*	// For detailed Debugging
+	// For detailed Debugging
 	dprint ("packet received : Printing header and data\n");
 	dump_header(hdr);
 	dump_buffer(dat->content, dat->len);
-*/    
+    
     return dat->len;
 }
 
@@ -146,12 +148,11 @@ tcp_connect (ipaddr_t dst, int port )
 {
 	TCPCtl * cc ; // current_connection
 	cc = Head->this ;
-	/* Do three way handshake */
 	Header hdr ;
 	Data dat ;
 	int bytes_sent ;
 
-	/* make sure that tcp_socket is called before calling this function */
+	/* FIXME: make sure that tcp_socket is called before calling this function */
 
 	// clear variables
 	memset (&hdr, 0, sizeof (hdr));
@@ -202,9 +203,8 @@ tcp_listen (int port, ipaddr_t *src)
 {
 	TCPCtl * cc ; // current_connection
 	cc = Head->this ;
-	/* Do three way handshake */
 
-	/* make sure that tcp_socket is called before calling this function */
+	/* FIXME: make sure that tcp_socket is called before calling this function */
 	
 	// now change the state
 	cc->type = TCP_LISTEN ;
@@ -219,8 +219,6 @@ tcp_listen (int port, ipaddr_t *src)
 
 	return 1 ; // FIXME:return proper value
 
-
-
 } // end function : tcp_listen ()
 
 int
@@ -231,10 +229,12 @@ tcp_read (char *buf, int maxlen )
 	TCPCtl * cc ; // current_connection
 	cc = Head->this ;
 
+	// FIXME : check if the connection from other side is closed...
+	// if yes, then return EOF
 
 	while (cc->in_buffer->len == 0 )
 	{
-		// check if the connection from other side is closed...
+		// FIXME : check if the connection from other side is closed...
 		// if yes, then return EOF
 		dprint ("tcp_read: no data in read buffer, calling handle packets\n");	
 		handle_packets ();
@@ -266,18 +266,21 @@ tcp_write (char * buf, int len )
 	TCPCtl * cc ; // current_connection
 	cc = Head->this ;
 
+	// FIXME:check if the connection from your side is closed...
+	// if yes, then return error
+	
 	bytes_left = len ;
 
 	dprint ("tcp_write: writing %d bytes\n", len);
 	while (bytes_left > 0 )
 	{
-		// check if the connection from your side is closed...
+		// FIXME:check if the connection from your side is closed...
 		// if yes, then return error
 		packet_size = MIN (cc->remote_window, bytes_left ) ;
 		dprint ("tcp_write: writing %d bytes of packet by calling write_packet\n", packet_size);
 		bytes_sent = write_packet (buf, packet_size ) ;
 
-		// upgrade the code for supporting multiple writes to send all data
+		// FIXME: upgrade the code for supporting multiple writes to send all data
 		return bytes_sent ;
 
 	} // end while : bytes left
@@ -290,37 +293,46 @@ int
 write_packet (char * buf, int len )
 {
 	TCPCtl * cc ; // current_connection
-	Header hdr ;
+	Header hdr, copy_of_hdr ;
 	Data dat ;
 	int bytes_sent ;
 	int ack_no ;
 
 	cc = Head->this ;
 
-	// clear variables
-	memset (&hdr, 0, sizeof (hdr));
-	memset (&dat, 0, sizeof (dat));
-	// assign data
-	dat.content = buf ;
-	dat.len = len ;
+		// clear variables
+		memset (&hdr, 0, sizeof (hdr));
+		memset (&dat, 0, sizeof (dat));
+		// assign data
+		dat.content = buf ;
+		dat.len = len ;
 
-	// setup packet
-	setup_packet (&hdr);
-
+		// setup packet
+		setup_packet (&hdr);
+		copy_of_hdr = hdr ;
+		cc->local_seqno = cc->local_seqno + len ; // updating local seq no.
+		//FIXME :need to worry about overflowing
 
 	// send the packet
 	do
 	{
+
+		hdr = copy_of_hdr ;
+		// in case of retransmission, update the ack_no and window_size
+		hdr.ackno = cc->remote_seqno ;
+		hdr.window = DATA_SIZE - cc->in_buffer->len ;
+
 		dprint ("write_packt: sending tcp packet\n");
 		bytes_sent = send_tcp_packet (&hdr, &dat);
 		dprint ("write_packt: waiting for ack\n");
 		ack_no = wait_for_ack () ;
+		dprint ("write_packet: got ack %u, but expected ack %u\n", ack_no, (cc->local_seqno + len));
+		// FIXME : need to introduce timers here
+		// may be, timers should b inside wait_for_ack function.
 	}
-	while (ack_no != (cc->local_seqno + len )  );
+	while (ack_no != cc->local_seqno   );
 	//FIXME :need to worry about overflowing in comparision 
 	dprint ("write:packet:Packet sent successfully\n");
-	cc->local_seqno = cc->local_seqno + len ; // updating local seq no.
-	//FIXME :need to worry about overflowing
 	return len ;
 } // end function : write_packet
 
@@ -350,9 +362,9 @@ int setup_packet (Header *hdr )
 	hdr->dport = Head->dport ;
 	hdr->seqno = cc->local_seqno ; 
 	hdr->ackno = cc->remote_seqno ;
-	dprint ( "window size = %d - %d", DATA_SIZE, cc->in_buffer->len);
 	hdr->window = DATA_SIZE - cc->in_buffer->len ;
-	dprint ( " = %d\n", hdr->window );
+//	dprint ( "window size = %d - %d", DATA_SIZE, cc->in_buffer->len);
+//	dprint ( " = %d\n", hdr->window );
 	hdr->urgent = 1 ;
 	// setup flags ; FIXME : need to fix this part
 	hdr->flags = 0 ; // clearing flags first
@@ -553,6 +565,10 @@ int handle_Syn_Recv_state (Header *hdr, Data *dat)
 	dprint ("handle_Syn_Recv_state: didn't get ACK, so ignoring packet\n");
 		return -1 ;
 	}
+	// FIXME : you may get FIN packet at this stage...
+	// then u need to change to FIN_WAIT_1 state
+
+
 	// got ACK, check if it is corrct ACK
 	if(cc->local_seqno+1 != hdr->ackno)//FIXME :need to worry about overflowing
 	{
@@ -583,6 +599,15 @@ int handle_Established_state (Header *hdr, Data *dat)
 
 	TCPCtl * cc ; // current_connection
 	cc = Head->this ;
+
+	// check if it is correct packet
+	if (cc->remote_seqno != hdr->seqno )
+	{
+		dprint ("handle_Established_state: Received unexpected packet, expected %u, recived %u, ACKing with old ACK number\n", cc->remote_seqno, hdr->seqno);	
+		// sending ack, just to tell other side dat something is wrong.
+			send_ack ();
+			return -1 ;
+	}
 
 	// update the ack number received
 	cc->remote_ackno = hdr->ackno ;
