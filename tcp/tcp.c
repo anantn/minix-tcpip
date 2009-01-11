@@ -2,6 +2,19 @@
 
 TCPMux* Head;
 
+char state_names[][30] = {
+    "Closed",
+    "Listen",
+    "Syn_Sent",
+    "Syn_Recv",
+    "Established",
+    "Fin_Wait1",
+    "Fin_Wait2",
+    "Close_Wait",
+    "Closing",
+    "Last_Ack",
+    "Time_Wait"
+} ;
 /* Low level send and receive functions */
 int
 send_tcp_packet(Header* hdr, Data* dat)
@@ -23,6 +36,7 @@ send_tcp_packet(Header* hdr, Data* dat)
 	dump_header(hdr);
 	dump_buffer(dat->content, dat->len);
 */
+	dprint ("\n### out ");
 	show_packet (hdr, dat->content, dat->len);
 
     swap_header(hdr, 0);
@@ -91,6 +105,7 @@ recv_tcp_packet(Header* hdr, Data* dat)
 	dump_header(hdr);
 	dump_buffer(dat->content, dat->len);
 */
+	dprint ("\n### in ");
 	show_packet (hdr, dat->content, dat->len);
 
     return dat->len;
@@ -532,7 +547,7 @@ handle_packets ()
 	TCPCtl * cc ; // current_connection
 	cc = Head->this ;
 
-	dprint ("handle_packet: state = %d, waiting for packet\n", cc->state  );
+	dprint ("handle_packet: state = %s, waiting for packet\n", state_names[cc->state] );
 	do
 	{
 		len = recv_tcp_packet (&hdr, &dat) ;
@@ -566,6 +581,11 @@ handle_packets ()
 						ret = handle_Established_state (&hdr, &dat);
 						break ;
 
+		case Fin_Wait2 :
+						dprint("Handle packet: dealing with Fin_Wait2 state\n");
+						ret = handle_Established_state (&hdr, &dat);
+						break ;
+
 		case Close_Wait :
 						dprint("Handle packet: dealing with Close_Wait state\n");
 						ret = handle_Established_state (&hdr, &dat);
@@ -581,7 +601,7 @@ handle_packets ()
 						ret = handle_Established_state (&hdr, &dat);
 						break ;
 
-		default :	dprint ("Not planned for this state yet :-( %d\n", cc->state); 
+		default :	dprint ("Not planned for this state yet :-( %s\n", state_names[cc->state]); 
 						break ;
 
 	} // end switch : connection state
@@ -739,7 +759,7 @@ int handle_Established_state (Header *hdr, Data *dat)
 	// check if it is correct packet
 	if (cc->remote_seqno != hdr->seqno )
 	{
-		dprint ("handle_Established_state: Received unexpected packet, expected %u, recived %u, ACKing with old ACK number\n", cc->remote_seqno, hdr->seqno);	
+		dprint ("00000 handle_Established_state: Received unexpected packet, expected %u, recived %u, ACKing with old ACK number\n", cc->remote_seqno, hdr->seqno);	
 		// sending ack, just to tell other side dat something is wrong.
 			send_ack ();
 			return -1 ;

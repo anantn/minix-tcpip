@@ -55,6 +55,7 @@ enum {
     Time_Wait
 };
     
+
 typedef struct _Header {
     /* First, the pseudoHeader */
     u32_t src;
@@ -104,6 +105,7 @@ typedef struct _TCPMux {
 
 /* global state (single connection for now) */
 extern TCPMux* Head;
+extern char state_names[][30];
 
 /* public interface */
 int tcp_socket(void);

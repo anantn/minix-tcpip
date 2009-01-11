@@ -59,9 +59,9 @@ void show_packet (Header * hdr, uchar * buf, int len )
 	if (hdr->flags & ACK ) dprint( "A");
 	if (hdr->flags & FIN ) dprint( "F");
 	if (hdr->flags & RST) dprint( "R");
-	dprint("]}\nDATA{%d[", len);
+	dprint("]}  DATA{%d[", len);
 	for (i = 0 ; i < len ; ++i ) dprint ( "%c", buf[i] );
-	dprint ("]}\n");
+	dprint ("]} %s\n", state_names[Head->this->state]);
 
 }
 
