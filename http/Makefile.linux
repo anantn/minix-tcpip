@@ -1,0 +1,17 @@
+
+CC = gcc
+CFLAGS = -g -Wall -DDEBUG -ansi
+LDFLAGS = -I. -I../ip-linux/ -I../tcp/ ../tcp/libtcp.a ../ip-linux/libip.a
+
+all: httpd httpc
+
+httpd: httpd.c
+	$(CC) $(CFLAGS) -o httpd httpd.c $(LDFLAGS)
+
+httpc: httpc.c
+	$(CC) $(CFLAGS) -o httpc httpc.c $(LDFLAGS)
+	
+clean:
+	-rm httpd httpc
+
+
