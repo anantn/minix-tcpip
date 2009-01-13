@@ -122,8 +122,7 @@ recv_tcp_packet(Header* hdr, Data* dat)
 int
 tcp_socket()
 {
-	TCPCtl * cc; /* current_connection */
-
+	TCPCtl* cc;
     TCPCtl* ctl;
     
     if (!ip_init()) {
@@ -230,9 +229,9 @@ tcp_connect (ipaddr_t dst, int port )
 }
 
 int
-tcp_listen(int port, ipaddr_t *src)
+tcp_listen(int port, ipaddr_t* src)
 {
-	TCPCtl * cc; /* current_connection */
+	TCPCtl* cc;
 	cc = Head->this;
 
 	/* FIXME:
@@ -254,11 +253,11 @@ tcp_listen(int port, ipaddr_t *src)
 }
 
 int
-tcp_read(char *buf, int maxlen)
+tcp_read(char* buf, int maxlen)
 {
 	int remaining_bytes = 0;
 	int bytes_read = 0;
-	TCPCtl * cc; /* current_connection */
+	TCPCtl* cc;
 	cc = Head->this;
 
 	/* sanity checks */
@@ -301,12 +300,12 @@ tcp_read(char *buf, int maxlen)
 }
 
 int
-tcp_write(char * buf, int len)
+tcp_write(char* buf, int len)
 {
 	int bytes_left;
 	int bytes_sent;
 	int packet_size;
-	TCPCtl * cc; /* current_connection */
+	TCPCtl* cc;
 	cc = Head->this;
 
 	/* check if the connection from your side is closed... */
@@ -339,7 +338,7 @@ tcp_write(char * buf, int len)
 int
 tcp_close(void)
 {
-	TCPCtl * cc; /* current_connection*/
+	TCPCtl* cc;
 	cc = Head->this;
 	Data dat;
 	int ret;
@@ -415,9 +414,9 @@ can_write(int state)
     also, handle retransmission till you get correct ACK
  */
 int
-write_packet(char * buf, int len, int flags)
+write_packet(char* buf, int len, int flags)
 {
-	TCPCtl * cc; /* current_connection */
+	TCPCtl* cc;
 	Header hdr, copy_of_hdr;
 	Data dat;
 	int bytes_sent;
@@ -505,9 +504,9 @@ wait_for_ack()
 }
 
 int
-setup_packet(Header *hdr)
+setup_packet(Header* hdr)
 {
-	TCPCtl * cc; /* current_connection*/
+	TCPCtl* cc;
 	cc = Head->this;
 	
 	hdr->dst = Head->dst;
@@ -606,7 +605,7 @@ handle_packets()
 }
 
 int
-handle_Closed_state(Header *hdr, Data *dat)
+handle_Closed_state(Header* hdr, Data* dat)
 {
     return 1;
 }
@@ -616,7 +615,7 @@ handle_Closed_state(Header *hdr, Data *dat)
     should send syn+ack packet
  */
 int
-handle_Listen_state(Header *hdr, Data *dat)
+handle_Listen_state(Header* hdr, Data* dat)
 {
 	int flags;
 	TCPCtl* cc;
@@ -655,7 +654,7 @@ handle_Listen_state(Header *hdr, Data *dat)
     and should send ack packet
  */
 int
-handle_Syn_Sent_state(Header *hdr, Data *dat)
+handle_Syn_Sent_state(Header* hdr, Data* dat)
 {
 	int flags;
 	TCPCtl* cc;
@@ -720,10 +719,10 @@ handle_Syn_Sent_state(Header *hdr, Data *dat)
 
 
 int
-handle_Syn_Recv_state(Header *hdr, Data *dat)
+handle_Syn_Recv_state(Header* hdr, Data* dat)
 {
 	int flags;
-	TCPCtl * cc;
+	TCPCtl* cc;
 	cc = Head->this;
 
 	dprint("handle_Syn_Recv_state: inside function\n");
@@ -773,9 +772,9 @@ handle_Syn_Recv_state(Header *hdr, Data *dat)
         3. fin packets
  */
 int
-handle_Established_state(Header *hdr, Data *dat)
+handle_Established_state(Header* hdr, Data* dat)
 {
-	TCPCtl * cc;
+	TCPCtl* cc;
 	cc = Head->this;
 
 	/* check if it is correct packet */
