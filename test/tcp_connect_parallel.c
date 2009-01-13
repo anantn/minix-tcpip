@@ -12,7 +12,7 @@ main(int argc, char** argv)
 {
 	char info[DATA_SIZE] = MSG ;
    	ipaddr_t dst_ip = inet_addr("192.168.0.2");
-//    int sport = 9000;
+/*    int sport = 9000;*/
     int dport = 6000;
 	int len ;
 	int ret, i ;

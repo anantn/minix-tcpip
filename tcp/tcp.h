@@ -126,7 +126,7 @@ void dump_buffer(uchar* dat, int len);
 void swap_header(Header* hdr, int ntoh);
 void show_packet (Header * hdr, uchar * buf, int len );
 
-// more support functions
+/* more support functions*/
 int can_read(int state);
 int can_write(int state);
 int handle_packets ();
@@ -135,7 +135,7 @@ int setup_packet (Header *hdr );
 int wait_for_ack ();
 int write_packet (char * buf, int len, int flags );
 
-// state handling functions
+/* state handling functions*/
 int handle_Closed_state (Header *hdr, Data *dat);
 int handle_Listen_state (Header *hdr, Data *dat);
 int handle_Syn_Sent_state  (Header *hdr, Data *dat);
