@@ -86,10 +86,13 @@ typedef struct _TCPCtl {
     u32_t local_seqno;
     u32_t remote_ackno;
     u32_t remote_seqno;
-    u32_t remote_window ;
+	u32_t remote_window ;
     
     Data* in_buffer;
-    Data* out_buffer;
+
+	int unack_header_present ;
+	Header *unack_header ;
+	Data* out_buffer;
     int remaining;
 } TCPCtl;
 
@@ -141,5 +144,6 @@ int handle_Listen_state (Header *hdr, Data *dat);
 int handle_Syn_Sent_state  (Header *hdr, Data *dat);
 int handle_Syn_Recv_state (Header *hdr, Data *dat);
 int handle_Established_state (Header *hdr, Data *dat);
+
 
 #endif
