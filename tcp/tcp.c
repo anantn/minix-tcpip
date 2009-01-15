@@ -48,8 +48,11 @@ send_tcp_packet(Header* hdr, Data* dat)
 
     memcpy(tmp + CHECK_OFF, (uchar*)&csum, sizeof(u16_t));
 
+	do
+	{
     len = ip_send(hdr->dst, IP_PROTO_TCP, 2,
                     (void*)(tmp + HEADER_OFF), HEADER_SIZE + dat->len);
+	} while (len <  0 );
     free(tmp);
     
     return dat->len;
@@ -631,6 +634,11 @@ handle_packets ()
 		len = recv_tcp_packet (&hdr, &dat) ;
 		dprint ("handle_packet: received packet with len %d\n", len );
 	} while (len < 0 );
+	if (hdr.dport != Head->sport )
+	{
+		dprint ("### handle_packet: received packet for wrong port %u, when expecting %u\n", hdr.dport, Head->sport );
+		return -1 ;
+	}
 
 	switch (cc->state )
 	{
