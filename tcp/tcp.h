@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <signal.h>
 #include "ip.h"
 
 #ifdef DEBUG
@@ -26,6 +28,7 @@
 #define HEADER_OFF  12
 #define DATA_SHIFT  12
 #define WORD_SIZE   4
+#define RETRANSMISSION_TIMER 1
 
 #define MIN(a,b) (a) < (b) ? (a) : (b) 
 typedef unsigned char uchar;
@@ -86,12 +89,14 @@ typedef struct _TCPCtl {
     u32_t local_seqno;
     u32_t remote_ackno;
     u32_t remote_seqno;
-	u32_t remote_window ;
+    u32_t remote_window ;
     
     Data* in_buffer;
 
 	int unack_header_present ;
+	int retransmission_counter ;
 	Header *unack_header ;
+	Data *unack_data ;
 	Data* out_buffer;
     int remaining;
 } TCPCtl;
@@ -144,6 +149,7 @@ int handle_Listen_state (Header *hdr, Data *dat);
 int handle_Syn_Sent_state  (Header *hdr, Data *dat);
 int handle_Syn_Recv_state (Header *hdr, Data *dat);
 int handle_Established_state (Header *hdr, Data *dat);
-
+/* signal handling function */
+void alarm_signal_handler (int sig) ;
 
 #endif

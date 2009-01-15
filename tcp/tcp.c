@@ -114,12 +114,14 @@ recv_tcp_packet(Header* hdr, Data* dat)
 /* ########### TCP Interface functions #################### */
 /* tcp_socket: Single connection for now */
 int
-tcp_socket()
+tcp_socket(void)
 {
 	TCPCtl * cc ; /* current_connection */
+	/* for signal handling */
+	struct sigaction new_action, sa_sigalarm ;
 
 
-    TCPCtl* ctl;
+	TCPCtl *ctl ;
     if (!ip_init()) {
 /*		return 0; */
 	}
@@ -143,7 +145,11 @@ tcp_socket()
 		
 	/* allocating memory for unacked header */
 	ctl->unack_header = (Header*)calloc(1, sizeof(Header));
+	ctl->unack_data = (Data*)calloc(1, sizeof(Data));
+	ctl->unack_data->content = (uchar*)calloc(DATA_SIZE, sizeof(uchar));
+	ctl->unack_data->len = 0 ;
 	ctl->unack_header_present = 0 ;
+	ctl->retransmission_counter = 0 ;
 
 	/* clear the data buffer */
 	ctl->remaining = 0 ;
@@ -160,6 +166,20 @@ tcp_socket()
 	cc->remote_ackno = 0 ; /* has to be set in three way handshake*/
 	cc->remote_seqno = 0 ;  /* has to be set in three way handshake*/
 	cc->remote_window = DATA_SIZE ;  /* has to be set in three way handshake */
+
+
+	/* now set the signal handler, for SIGALARM,
+	 * which will handle the retransmissions */
+	sa_sigalarm.sa_handler = alarm_signal_handler ;
+	sigemptyset (&sa_sigalarm_cancel.sa_mask );
+	sa_sigalarm.sa_flags = 0 ;
+
+	if ( sigaction(SIGALRM, &sa_sigalarm, NULL) == -1 )
+	{
+		dprint ("Socket Error : can't set signal handler\n");
+		return -1 ;
+	}
+
     return 1; /* FIXME : checkup for failure of tcp_socket */
 }
 
@@ -209,7 +229,9 @@ tcp_listen (int port, ipaddr_t *src)
 	cc->type = TCP_LISTEN ;
 	cc->state = Listen ; 
 	cc->local_seqno = 800 ; /* FIXME : better way to set initial seq-no ..??? */
+	Head->sport = port ; 
 
+	/* FIXME : port varification is not done yet.. accepting packet for any port */
 	do
 	{
 		handle_packets ();
@@ -346,6 +368,34 @@ tcp_close (void)
 	return 1 ;
 } /* end function : tcp_close */
 
+/* signal handler for SIG_ALARM, which will deal with retransmissions */
+void 
+alarm_signal_handler (int sig)
+{
+	TCPCtl * cc ; /* current_connection */
+	int bytes_sent ;
+	cc = Head->this ;
+	if (!cc->unack_header_present)
+	{
+		/* no unack packet for retransmission */
+		return ;
+	}
+	/* there is packet for restransmission. */
+	++(cc->retransmission_counter) ; 
+
+	/* re-send the packet*/
+
+	/* update the ack_no and window_size
+	 * as it may change */
+	cc->unack_header->ackno = cc->remote_seqno ;
+	cc->unack_header->window = DATA_SIZE - cc->in_buffer->len ;
+	bytes_sent = send_tcp_packet (cc->unack_header, cc->unack_data ) ;
+	/* FIXME: check for return value of send_tcp_packet */
+
+	/* set alarm, in case even this packet is lost */
+	alarm (RETRANSMISSION_TIMER);
+	return ;
+} /* end function : alarm_signal_handler */
 
 /*  ########### private functions ####################*/
 /* Checks if you can read from socket or not*/
@@ -442,7 +492,10 @@ write_packet (char * buf, int len, int flags )
 
 	/* Put the packet into the list of unacked packets packets */
 	memcpy (cc->unack_header, &hdr, sizeof (hdr) );
+	memcpy (cc->unack_data->content, dat.content, dat.len );
+	cc->unack_data->len = dat.len ;
 	cc->unack_header_present = 1 ;
+	cc->retransmission_counter = 0 ;
 
 
 	/* send the packet*/
@@ -463,15 +516,35 @@ int wait_for_ack (u32_t local_seqno )
 	TCPCtl * cc ; /* current_connection*/
 	cc = Head->this ;
 
-		/* FIXME : need to introduce timers here*/
-		/* may be, timers should b inside wait_for_ack function.*/
-	/*FIXME :need to worry about overflowing in comparision */
-	while ( local_seqno > cc->remote_ackno )
+	alarm (RETRANSMISSION_TIMER);
+
+	while ( local_seqno > cc->remote_ackno ) /*FIXME :need to worry about overflowing in comparision */
 	{
 		dprint ("wait_for_ack: calling handle_packet\n");
 		handle_packets () ;
 		dprint ("wait_for_ack: got ack %u, but expected ack %u\n", cc->remote_ackno, local_seqno );
-	}
+	} /*end while : */
+
+
+	/*FIXME: few assumptions 
+	 * Whenever we will get correct ACK, we will assume that last packet
+	 * which is present in cc->unack_header is acked, so delete it.
+	 * and cancel the alarm which was set.
+	 * */
+	/* may be i should get a lock before i modify these thing,
+	 * that will assure the correctness better 
+	 * locking can be implemented by masking the signal temporarily */
+
+
+	/* clearing the unacked packet */
+	cc->unack_header_present = 0 ;
+	memset (cc->unack_header,0, sizeof (Header));
+	memset (cc->unack_data->content,0, sizeof (DATA_SIZE));
+	cc->unack_data->len = 0 ;
+
+	/* cancel the signal SIGALARM */
+	alarm (0);
+	dprint ("wait_for_ack: got gud ack %u, for expected ack %u, canceling alarm\n", cc->remote_ackno, local_seqno);
 	return (1) ; /* FIXME : return something meaningful */
 } /* function : wait_for_ack */
 
@@ -505,6 +578,7 @@ int setup_packet (Header *hdr )
 int
 socket_close (void)
 {
+	struct sigaction sa_sigalarm_cancel ;
 	TCPCtl * cc ; /* current_connection*/
 	cc = Head->this ;
 	cc->state = Closed ;
@@ -512,6 +586,23 @@ socket_close (void)
 	free (cc->out_buffer->content);
 	free (cc->in_buffer);
 	free (cc->out_buffer);
+	free (cc->unack_header );
+	free (cc->unack_data->content );
+	free (cc->unack_data );
+
+	/* clear all alarm signals */
+	/* now set the signal handler, for SIGALARM,
+	 * which will handle the retransmissions */
+	sa_sigalarm_cancel.sa_handler = SIG_DFL ;
+	sigemptyset (&sa_sigalarm_cancel.sa_mask );
+	sa_sigalarm_cancel.sa_flags = 0 ;
+
+	if ( sigaction(SIGALRM, &sa_sigalarm_cancel, NULL) == -1 )
+	{
+		dprint ("Socket close Error : can't remove signal handler\n");
+		return -1 ;
+	}
+	alarm (0); 
 
 	
 	return 1 ;

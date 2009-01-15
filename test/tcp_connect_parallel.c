@@ -24,21 +24,21 @@ main(int argc, char** argv)
     ret = tcp_socket();
 	if (ret == 0 )
 	{
-		printf ("\nError: Prob in initializing IP lib\n");	
+		printf ("\n=== Error: Prob in initializing IP lib\n");	
 		exit(1);
 	}
-	printf ("socket created, trying to connect\n");
+	printf ("\n=== socket created, trying to connect\n");
 	tcp_connect (dst_ip, dport);
-	printf ("sending data\n");
-    printf("Sent %d bytes!\n", tcp_write(info, len));
+	printf ("\n=== sending data\n");
+    printf("\n=== Sent %d bytes!\n", tcp_write(info, len));
 	len = tcp_read (info, DATA_SIZE);
-   	printf ("Received answer of %d bytes, Dumping content:\n", len); 
+   	printf ("\n=== Received answer of %d bytes, Dumping content:\n", len); 
    	dump_buffer (info, len);
-   	printf ("\nData is \n");
+   	printf ("\n=== Data is \n=== ");
 	for (i = 0 ; i < len ; ++i ) printf ("%c", info[i]);
-   	printf ("\nDone\n");
-	printf ("closing connection\n");
+   	printf (" === \n=== Done\n");
+	printf ("\n=== closing connection\n");
 	tcp_close ();
-   	printf ("\nDone closing\n");
+   	printf ("\n=== Done closing\n");
     return 1;
 }
