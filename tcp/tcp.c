@@ -64,7 +64,10 @@ recv_tcp_packet(Header* hdr, Data* dat)
     ushort prot, idp;
     ipaddr_t src, dst;
     
-    len = ip_receive(&src, &dst, &prot, &idp, &data);
+	do
+	{
+		len = ip_receive(&src, &dst, &prot, &idp, &data);
+	} while (len < 0 );
 
     /* Extract header - pseudo and real, still in network order */
     hdr->src = src;
@@ -118,7 +121,7 @@ tcp_socket(void)
 {
 	TCPCtl * cc ; /* current_connection */
 	/* for signal handling */
-	struct sigaction new_action, sa_sigalarm ;
+	struct sigaction sa_sigalarm ;
 
 
 	TCPCtl *ctl ;
@@ -171,7 +174,7 @@ tcp_socket(void)
 	/* now set the signal handler, for SIGALARM,
 	 * which will handle the retransmissions */
 	sa_sigalarm.sa_handler = alarm_signal_handler ;
-	sigemptyset (&sa_sigalarm_cancel.sa_mask );
+	sigemptyset (&sa_sigalarm.sa_mask );
 	sa_sigalarm.sa_flags = 0 ;
 
 	if ( sigaction(SIGALRM, &sa_sigalarm, NULL) == -1 )
@@ -387,6 +390,7 @@ alarm_signal_handler (int sig)
 
 	/* update the ack_no and window_size
 	 * as it may change */
+	dprint ("\n### retransmitting packet rt-no %d", cc->retransmission_counter);
 	cc->unack_header->ackno = cc->remote_seqno ;
 	cc->unack_header->window = DATA_SIZE - cc->in_buffer->len ;
 	bytes_sent = send_tcp_packet (cc->unack_header, cc->unack_data ) ;
