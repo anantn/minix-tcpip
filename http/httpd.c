@@ -7,18 +7,18 @@
 void
 send_initial_response(int code)
 {
-    tcp_write("HTTP/1.0 ");
+    tcp_write("HTTP/1.0 ", 8);
     switch (code) {
         case 404:
-            tcp_write("404 Not Found\r\n");
+            tcp_write("404 Not Found\r\n", 15);
             break;
         default:
-            tcp_write("200 OK\r\n");
+            tcp_write("200 OK\r\n", 8);
             break;
     }
     
     /* FIXME: write date and time */
-    tcp_write("Server: CN Practical '08/09 HTTP Server (Minix 3.1)\r\n");   
+    tcp_write("Server: CN Practical '08/09 HTTP Server (Minix 3.1)\r\n", 56);   
 }
 
 void
@@ -45,7 +45,7 @@ handle_get(char* htdocs)
     if (stat(fPath, &buf) != 0) {
         /* Cannot access file because it does not exist? */
         send_initial_response(404);
-        tcp_write("\r\n");
+        tcp_write("\r\n", 2);
         return;
     }
     
@@ -59,27 +59,30 @@ handle_get(char* htdocs)
     /* Send response */
     send_initial_response(200);
     /* FIXME: Output other headers */
-    tcp_write("\r\n");
-    tcp_write(contents, buf.st_size);
+    tcp_write("\r\n", 2);
+    tcp_write((char*)contents, buf.st_size);
+    
+    free(fPath);
+    free(contents);
 }
 
 int
 serve(char* htdocs)
 {
     int con;
-    
+    char method[4];
+
     if (!(con = tcp_socket())) {
         dprint("Could not initialize tcp_socket, quitting!\n");
         return 1;
     }
     
-    if (!tcp_listen(80, my_ipaddr)) {
+    if (!tcp_listen(80, (ipaddr_t*)my_ipaddr)) {
         dprint("Could not listen on port 80, quitting!\n");
         return 1;
     }
     
     /* First, let's find out which HTTP method is requested */
-    char method[4];
     tcp_read(method, 4);
     
     switch (method[0]) {
@@ -104,13 +107,15 @@ serve(char* htdocs)
 int
 main(int argc, char** argv)
 {
+    DIR* check;
+
     if (argc != 2) {
         /* Invalid arguments passes */
         dprint("Usage: httpd <directory>\n");
         return 1;
     }
     
-    DIR* check = opendir(argv[1]);
+    check = opendir(argv[1]);
     if (!check) {
         /* Invalid HTDOCS directory */
         dprint("Invalid directory to serve from, quitting!\n");
@@ -121,3 +126,4 @@ main(int argc, char** argv)
     
     return serve(argv[1]);
 }
+
