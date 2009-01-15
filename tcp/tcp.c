@@ -2,7 +2,7 @@
 
 TCPMux* Head;
 
-char state_names[][30] = {
+char state_names[][12] = {
     "Closed",
     "Listen",
     "Syn_Sent",
@@ -14,10 +14,66 @@ char state_names[][30] = {
     "Closing",
     "Last_Ack",
     "Time_Wait"
-} ;
+};
+
+/* Low level interface wrapper */
+int
+send_tcp_packet(ipaddr_t dst, u16_t src_port, u16_t dst_port,
+	u32_t seq_nb, u32_t ack_nb, u8_t flags, u16_t win_sz,
+	const char* data, int data_sz)
+{
+    int ret;
+
+	Header* hdr = (Header*)calloc(1, sizeof(Header));
+	Data* dat = (Data*)calloc(1, sizeof(Data));
+	dat->len = data_sz;
+	dat->content = data;
+
+	hdr->dst = dst;
+	hdr->sport = src_port;
+	hdr->dport = dst_port;
+	hdr->seqno = seq_nb;
+	hdr->ackno = ack_nb;
+	hdr->flags = (HEADER_SIZE / WORD_SIZE) << DATA_SHIFT;
+	hdr->flags = hdr->flags | flags;
+	hdr->window = win_sz;
+	
+	ret = _send_tcp_packet(hdr, dat);
+    free(hdr);
+	free(dat);
+
+	return ret;
+}
+
+int
+recv_tcp_packet(ipaddr_t* src, u16_t* src_port, u16_t* dst_port,
+	u32_t* seq_nb, u32_t* ack_nb, u8_t* flags, u16_t* win_sz,
+	char* data, int* data_sz)
+{
+    int ret;
+
+	Header* hdr = (Header*)calloc(1, sizeof(Header));
+    Data* dat = (Data*)calloc(1, sizeof(Data));
+
+	ret = _recv_tcp_packet(hdr, dat);
+
+	*src = hdr->src;
+	*src_port = hdr->sport;
+	*dst_port = hdr->dport;
+	*seq_nb = hdr->seqno;
+	*ack_nb = hdr->ackno;
+	*flags = (u8_t)(hdr->flags & 0xFF);
+	*win_sz = hdr->window;
+
+	data = dat->content;
+	*data_sz = dat->len;
+
+	return ret;
+}
+
 /* Low level send and receive functions */
 int
-send_tcp_packet(Header* hdr, Data* dat)
+_send_tcp_packet(Header* hdr, Data* dat)
 {   
     uchar* tmp;
     int len, csum;
@@ -48,18 +104,15 @@ send_tcp_packet(Header* hdr, Data* dat)
 
     memcpy(tmp + CHECK_OFF, (uchar*)&csum, sizeof(u16_t));
 
-	do
-	{
     len = ip_send(hdr->dst, IP_PROTO_TCP, 2,
                     (void*)(tmp + HEADER_OFF), HEADER_SIZE + dat->len);
-	} while (len <  0 );
     free(tmp);
     
     return dat->len;
 }
 
 int
-recv_tcp_packet(Header* hdr, Data* dat)
+_recv_tcp_packet(Header* hdr, Data* dat)
 {
     char* data;
     uchar* tmp;
@@ -123,8 +176,8 @@ int
 tcp_socket(void)
 {
 	TCPCtl * cc ; /* current_connection */
-	/* for signal handling */
-	struct sigaction sa_sigalarm ;
+	/* for signal handling
+	struct sigaction sa_sigalarm ; */
 
 
 	TCPCtl *ctl ;
@@ -175,7 +228,7 @@ tcp_socket(void)
 
 
 	/* now set the signal handler, for SIGALARM,
-	 * which will handle the retransmissions */
+	 * which will handle the retransmissions
 	sa_sigalarm.sa_handler = alarm_signal_handler ;
 	sigemptyset (&sa_sigalarm.sa_mask );
 	sa_sigalarm.sa_flags = 0 ;
@@ -184,7 +237,7 @@ tcp_socket(void)
 	{
 		dprint ("Socket Error : can't set signal handler\n");
 		return -1 ;
-	}
+	}*/
 
     return 1; /* FIXME : checkup for failure of tcp_socket */
 }
@@ -197,8 +250,9 @@ int
 tcp_connect (ipaddr_t dst, int port )
 {
 	TCPCtl * cc ; /* current_connection */
-	cc = Head->this ;
 	char buffer = 0 ;
+
+	cc = Head->this;
 
 	/*FIXME: make sure that tcp_socket is called before calling this function */
 
@@ -328,9 +382,9 @@ tcp_close (void)
 {
 
 	TCPCtl * cc ; /* current_connection*/
-	cc = Head->this ;
+	int ret;
 	char buffer = 0 ;
-	int ret ;
+	cc = Head->this;
 
 
 	/* send FIN and start 4-way closing procedure*/
@@ -376,7 +430,7 @@ tcp_close (void)
 
 /* signal handler for SIG_ALARM, which will deal with retransmissions */
 void 
-alarm_signal_handler (int sig)
+alarm_signal_handler(int sig)
 {
 	TCPCtl * cc ; /* current_connection */
 	int bytes_sent ;
@@ -396,7 +450,7 @@ alarm_signal_handler (int sig)
 	dprint ("\n### retransmitting packet rt-no %d", cc->retransmission_counter);
 	cc->unack_header->ackno = cc->remote_seqno ;
 	cc->unack_header->window = DATA_SIZE - cc->in_buffer->len ;
-	bytes_sent = send_tcp_packet (cc->unack_header, cc->unack_data ) ;
+	bytes_sent = _send_tcp_packet (cc->unack_header, cc->unack_data ) ;
 	/* FIXME: check for return value of send_tcp_packet */
 
 	/* set alarm, in case even this packet is lost */
@@ -510,7 +564,7 @@ write_packet (char * buf, int len, int flags )
 	/* in case of retransmission, update the ack_no and window_size*/
 	hdr.ackno = cc->remote_seqno ;
 	hdr.window = DATA_SIZE - cc->in_buffer->len ;
-	bytes_sent = send_tcp_packet (&hdr, &dat);
+	bytes_sent = _send_tcp_packet (&hdr, &dat);
 
 	wait_for_ack (ack_to_wait) ;
 	dprint ("write_packet:Packet sent successfully\n");
@@ -550,7 +604,7 @@ int wait_for_ack (u32_t local_seqno )
 	cc->unack_data->len = 0 ;
 
 	/* cancel the signal SIGALARM */
-	alarm (0);
+	/* alarm (0); */
 	dprint ("wait_for_ack: got gud ack %u, for expected ack %u, canceling alarm\n", cc->remote_ackno, local_seqno);
 	return (1) ; /* FIXME : return something meaningful */
 } /* function : wait_for_ack */
@@ -585,7 +639,6 @@ int setup_packet (Header *hdr )
 int
 socket_close (void)
 {
-	struct sigaction sa_sigalarm_cancel ;
 	TCPCtl * cc ; /* current_connection*/
 	cc = Head->this ;
 	cc->state = Closed ;
@@ -599,7 +652,7 @@ socket_close (void)
 
 	/* clear all alarm signals */
 	/* now set the signal handler, for SIGALARM,
-	 * which will handle the retransmissions */
+	 * which will handle the retransmissions
 	sa_sigalarm_cancel.sa_handler = SIG_DFL ;
 	sigemptyset (&sa_sigalarm_cancel.sa_mask );
 	sa_sigalarm_cancel.sa_flags = 0 ;
@@ -611,7 +664,7 @@ socket_close (void)
 	}
 	alarm (0); 
 
-	
+	*/
 	return 1 ;
 } /* end function : tcp_close()*/
 
@@ -631,14 +684,9 @@ handle_packets ()
 	dprint ("handle_packet: state = %s, waiting for packet\n", state_names[cc->state] );
 	do
 	{
-		len = recv_tcp_packet (&hdr, &dat) ;
+		len = _recv_tcp_packet (&hdr, &dat) ;
 		dprint ("handle_packet: received packet with len %d\n", len );
 	} while (len < 0 );
-	if (hdr.dport != Head->sport )
-	{
-		dprint ("### handle_packet: received packet for wrong port %u, when expecting %u\n", hdr.dport, Head->sport );
-		return -1 ;
-	}
 
 	switch (cc->state )
 	{
@@ -950,7 +998,7 @@ int send_ack ()
 	{
 		dprint("send_ack: sending simple ACK\n");
 	}
-	bytes_sent = send_tcp_packet (&hdr, &dat);
+	bytes_sent = _send_tcp_packet (&hdr, &dat);
 	dprint("send_ack: sent....\n\n");
 	free (dat.content);
 	return 1 ; 

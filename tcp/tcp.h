@@ -132,24 +132,24 @@ void tcp_checksum(Header* hdr, Data* dat, int con);
 void dump_header(Header* hdr);
 void dump_buffer(uchar* dat, int len);
 void swap_header(Header* hdr, int ntoh);
-void show_packet (Header * hdr, uchar * buf, int len );
+void show_packet(Header * hdr, uchar * buf, int len );
 
 /* more support functions*/
 int can_read(int state);
 int can_write(int state);
-int handle_packets ();
-int send_ack () ;
-int setup_packet (Header *hdr );
-int wait_for_ack ();
-int write_packet (char * buf, int len, int flags );
+int handle_packets(void);
+int send_ack(void) ;
+int setup_packet(Header *hdr );
+int wait_for_ack(u32_t local_seqno);
+int write_packet(char * buf, int len, int flags );
 
 /* state handling functions*/
-int handle_Closed_state (Header *hdr, Data *dat);
-int handle_Listen_state (Header *hdr, Data *dat);
-int handle_Syn_Sent_state  (Header *hdr, Data *dat);
-int handle_Syn_Recv_state (Header *hdr, Data *dat);
-int handle_Established_state (Header *hdr, Data *dat);
+int handle_Closed_state(Header *hdr, Data *dat);
+int handle_Listen_state(Header *hdr, Data *dat);
+int handle_Syn_Sent_state(Header *hdr, Data *dat);
+int handle_Syn_Recv_state(Header *hdr, Data *dat);
+int handle_Established_state(Header *hdr, Data *dat);
 /* signal handling function */
-void alarm_signal_handler (int sig) ;
+void alarm_signal_handler(int sig) ;
 
 #endif
