@@ -172,18 +172,9 @@ tcp_connect (ipaddr_t dst, int port )
 {
 	TCPCtl * cc ; /* current_connection */
 	cc = Head->this ;
-	Header hdr ;
-	Data dat ;
-	int bytes_sent ;
+	char buffer = 0 ;
 
-	/* FIXME: make sure that tcp_socket is called before calling this function */
-
-	/* clear variables */
-	memset (&hdr, 0, sizeof (hdr));
-	memset (&dat, 0, sizeof (dat));
-
-	dat.content = (uchar*)calloc(DATA_SIZE, sizeof(uchar));
-	dat.len = 0 ;
+	/*FIXME: make sure that tcp_socket is called before calling this function */
 
 	/* setting up status variables for this connection */
 	cc->type = TCP_CONNECT ;
@@ -193,12 +184,8 @@ tcp_connect (ipaddr_t dst, int port )
 	Head->sport = 6000 ; /* FIXME : better way to assign local port */
 	cc->state = Syn_Sent ; 
 
-	/* setup packet */
-	write_packet (dat.content, dat.len, SYN );
-
-
-
-	free (dat.content) ;
+	/* send SYN packet */
+	write_packet (&buffer, 0, SYN );
 
 	while (cc->state != Established ) 
 	{
@@ -314,7 +301,7 @@ tcp_close (void)
 
 	TCPCtl * cc ; /* current_connection*/
 	cc = Head->this ;
-	Data dat ;
+	char buffer = 0 ;
 	int ret ;
 
 
@@ -322,12 +309,10 @@ tcp_close (void)
 	
 	/* clear variables*/
 
-	dat.content = (uchar*)calloc(DATA_SIZE, sizeof(uchar));
-	dat.len = 0 ;
 
 	dprint ("Starting the Close procedure\n");
 	/* send FIN packet*/
-	ret = write_packet (dat.content, dat.len, FIN );	
+	ret = write_packet (&buffer, 0, FIN );	
 	
 	/* it means got the ACK for your FIN,
 	 so, lets change the state
@@ -358,7 +343,6 @@ tcp_close (void)
 							
 	} /* end switch :*/
 
-	free (dat.content); 
 	return 1 ;
 } /* end function : tcp_close */
 
@@ -411,7 +395,7 @@ write_packet (char * buf, int len, int flags )
 	memset (&hdr, 0, sizeof (hdr));
 	memset (&dat, 0, sizeof (dat));
 	/* assign data*/
-	dat.content = buf ;
+	dat.content = (uchar *) buf ;
 	dat.len = len ;
 
 	/* setup packet*/
