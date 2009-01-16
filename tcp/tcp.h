@@ -12,12 +12,12 @@
 #ifdef VERBOSE  
 #define dprint printf 
 #else
-#define dprint (void)
+#define dprint noprint 
 #endif
 #define ddprint printf
 #else
-#define dprint (void)
-#define ddprint (void)
+#define dprint noprint
+#define ddprint noprint
 #endif
 
 #ifndef IP_PROTO_TCP
@@ -168,4 +168,9 @@ int handle_Established_state(Header *hdr, Data *dat);
 /* signal handling function */
 void alarm_signal_handler(int sig) ;
 
-#endif
+/* for debugging support */
+int noprint (char *fmt, ...) ;
+
+
+
+#endif /* _TCP_H */

@@ -1009,3 +1009,10 @@ int send_ack ()
 	free (dat.content);
 	return 1 ; 
 } /* end function : send_ack */
+
+
+/* for debugging support */
+int noprint (char *fmt, ...)
+{
+	return 0 ;
+}
