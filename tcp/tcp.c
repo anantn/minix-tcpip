@@ -176,8 +176,6 @@ int
 tcp_socket(void)
 {
 	TCPCtl * cc ; /* current_connection */
-	/* for signal handling
-	struct sigaction sa_sigalarm ; */
 
 
 	TCPCtl *ctl ;
@@ -228,16 +226,13 @@ tcp_socket(void)
 
 
 	/* now set the signal handler, for SIGALARM,
-	 * which will handle the retransmissions
-	sa_sigalarm.sa_handler = alarm_signal_handler ;
-	sigemptyset (&sa_sigalarm.sa_mask );
-	sa_sigalarm.sa_flags = 0 ;
+	 * which will handle the retransmissions */
 
-	if ( sigaction(SIGALRM, &sa_sigalarm, NULL) == -1 )
+	if ( signal(SIGALRM, alarm_signal_handler ) == SIG_ERR )
 	{
 		dprint ("Socket Error : can't set signal handler\n");
 		return -1 ;
-	}*/
+	}
 
     return 1; /* FIXME : checkup for failure of tcp_socket */
 }
@@ -435,6 +430,15 @@ alarm_signal_handler(int sig)
 	TCPCtl * cc ; /* current_connection */
 	int bytes_sent ;
 	cc = Head->this ;
+	ddprint ("\nin handler %d", cc->retransmission_counter);
+	/* set the signal handler again */
+	if ( signal(SIGALRM, alarm_signal_handler ) == SIG_ERR )
+	{
+		ddprint ("Socket Error : can't set signal handler\n");
+		return ;
+	}
+
+
 	if (!cc->unack_header_present)
 	{
 		/* no unack packet for retransmission */
@@ -455,6 +459,7 @@ alarm_signal_handler(int sig)
 
 	/* set alarm, in case even this packet is lost */
 	alarm (RETRANSMISSION_TIMER);
+	ddprint ("\nout handler %d", cc->retransmission_counter);
 	return ;
 } /* end function : alarm_signal_handler */
 
@@ -604,7 +609,7 @@ int wait_for_ack (u32_t local_seqno )
 	cc->unack_data->len = 0 ;
 
 	/* cancel the signal SIGALARM */
-	/* alarm (0); */
+	alarm (0); 
 	dprint ("wait_for_ack: got gud ack %u, for expected ack %u, canceling alarm\n", cc->remote_ackno, local_seqno);
 	return (1) ; /* FIXME : return something meaningful */
 } /* function : wait_for_ack */
@@ -652,19 +657,15 @@ socket_close (void)
 
 	/* clear all alarm signals */
 	/* now set the signal handler, for SIGALARM,
-	 * which will handle the retransmissions
-	sa_sigalarm_cancel.sa_handler = SIG_DFL ;
-	sigemptyset (&sa_sigalarm_cancel.sa_mask );
-	sa_sigalarm_cancel.sa_flags = 0 ;
+	 * which will handle the retransmissions */
 
-	if ( sigaction(SIGALRM, &sa_sigalarm_cancel, NULL) == -1 )
+	if ( signal(SIGALRM, SIG_DFL) == SIG_ERR )
 	{
 		dprint ("Socket close Error : can't remove signal handler\n");
 		return -1 ;
 	}
 	alarm (0); 
 
-	*/
 	return 1 ;
 } /* end function : tcp_close()*/
 
