@@ -16,7 +16,7 @@ main(int argc, char** argv)
 	char buffer[DATA_SIZE] ;
    	ipaddr_t dst_ip = inet_addr("192.168.0.1");
 /*    int sport = 9000;*/
-    int dport = 6000;
+    int dport = 4000;
 	int len  ;
 	int ret ;
 

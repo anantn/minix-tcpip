@@ -9,9 +9,15 @@
 #include "ip.h"
 
 #ifdef DEBUG
-#define dprint printf
+#ifdef VERBOSE  
+#define dprint printf 
 #else
 #define dprint (void)
+#endif
+#define ddprint printf
+#else
+#define dprint (void)
+#define ddprint (void)
 #endif
 
 #ifndef IP_PROTO_TCP
@@ -113,7 +119,7 @@ typedef struct _TCPMux {
 
 /* global state (single connection for now) */
 extern TCPMux* Head;
-extern char state_names[][30];
+extern char state_names[][12];
 
 /* public interface */
 int tcp_socket(void);
@@ -123,8 +129,18 @@ int tcp_read(char* buf, int maxlen);
 int tcp_write(char* buf, int len);
 int tcp_close(void);
 
-int recv_tcp_packet(Header* hdr, Data* dat);
-int send_tcp_packet(Header* hdr, Data* dat);
+/* Low level interface wrapper */
+int
+send_tcp_packet(ipaddr_t dst, u16_t src_port, u16_t dst_port,
+	u32_t seq_nb, u32_t ack_nb, u8_t flags, u16_t win_sz,
+	const char* data, int data_sz) ;
+int
+recv_tcp_packet(ipaddr_t* src, u16_t* src_port, u16_t* dst_port,
+	u32_t* seq_nb, u32_t* ack_nb, u8_t* flags, u16_t* win_sz,
+	char* data, int* data_sz);
+
+int _recv_tcp_packet(Header* hdr, Data* dat);
+int _send_tcp_packet(Header* hdr, Data* dat);
 
 /* util functions */
 u16_t raw_checksum(uchar* dat, int len);

@@ -33,7 +33,7 @@ main(int argc, char** argv)
     printf("\n=== Sent %d bytes!\n", tcp_write(info, len));
 	len = tcp_read (info, DATA_SIZE);
    	printf ("\n=== Received answer of %d bytes, Dumping content:\n", len); 
-   	dump_buffer (info, len);
+   	dump_buffer ((uchar *)info, len);
    	printf ("\n=== Data is \n=== ");
 	for (i = 0 ; i < len ; ++i ) printf ("%c", info[i]);
    	printf (" === \n=== Done\n");

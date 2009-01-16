@@ -7,7 +7,7 @@ main(int argc, char** argv) {
     Header* hdr = (Header*)calloc(1, sizeof(Header));
 
     tcp_socket();
-    len = recv_tcp_packet(hdr, dat);
+    len = _recv_tcp_packet(hdr, dat);
     
     printf("Received %d bytes! Dumping header & content:\n", len);
     dump_header(hdr);

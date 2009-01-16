@@ -52,16 +52,16 @@ swap_header(Header* hdr, int ntoh)
 void show_packet (Header * hdr, uchar * buf, int len )
 {
 	int i ;
-	dprint ("HDR{");
-    dprint("[%s:%d --> %s:%d] ", inet_ntoa(hdr->src), hdr->sport, inet_ntoa(hdr->dst), hdr->dport) ;
-	dprint ("[S%d:A%d] [W:%d] [", hdr->seqno, hdr->ackno,hdr->window );
-	if (hdr->flags & SYN) dprint( "S");
-	if (hdr->flags & ACK ) dprint( "A");
-	if (hdr->flags & FIN ) dprint( "F");
-	if (hdr->flags & RST) dprint( "R");
-	dprint("]}  DATA{%d[", len);
-	for (i = 0 ; i < len ; ++i ) dprint ( "%c", buf[i] );
-	dprint ("]} %s\n", state_names[Head->this->state]);
+	ddprint ("HDR{");
+    ddprint("[%s:%d --> %s:%d] ", inet_ntoa(hdr->src), hdr->sport, inet_ntoa(hdr->dst), hdr->dport) ;
+	ddprint ("[S%d:A%d] [W:%d] [", hdr->seqno, hdr->ackno,hdr->window );
+	if (hdr->flags & SYN) ddprint( "S");
+	if (hdr->flags & ACK ) ddprint( "A");
+	if (hdr->flags & FIN ) ddprint( "F");
+	if (hdr->flags & RST) ddprint( "R");
+	ddprint("]}  DATA{%d[", len);
+	for (i = 0 ; i < len ; ++i ) ddprint ( "%c", buf[i] );
+	ddprint ("]} %s\n", state_names[Head->this->state]);
 
 }
 
@@ -69,21 +69,21 @@ void show_packet (Header * hdr, uchar * buf, int len )
 void
 dump_header(Header* hdr)
 {
-    dprint("Header Dump\n");
-    dprint("-----------\n");
-    dprint("SRC: %s, %0X\n", inet_ntoa(hdr->src), hdr->src);
-    dprint("DST: %s, %0X \n", inet_ntoa(hdr->dst), hdr->dst);
-    dprint("PRT: %d, %0X \n", hdr->prot, hdr->prot);
-    dprint("LEN: %d, %0X \n", hdr->tlen, hdr->tlen);
-    dprint("SPT: %d, %0X \n", hdr->sport, hdr->sport);
-    dprint("DPT: %d, %0X \n", hdr->dport, hdr->dport);
-    dprint("SEQ: %d, %0X \n", hdr->seqno, hdr->seqno);
-    dprint("ACK: %d, %0X \n", hdr->ackno, hdr->ackno);
-    dprint("FLG: %X \n", hdr->flags);
-    dprint("WIN: %X %d\n", hdr->window, hdr->window);
-    dprint("CHK: %X \n", hdr->chksum);
-    dprint("URG: %X \n", hdr->urgent);
-    dprint("-----------\n");
+    ddprint("Header Dump\n");
+    ddprint("-----------\n");
+    ddprint("SRC: %s, %0X\n", inet_ntoa(hdr->src), hdr->src);
+    ddprint("DST: %s, %0X \n", inet_ntoa(hdr->dst), hdr->dst);
+    ddprint("PRT: %d, %0X \n", hdr->prot, hdr->prot);
+    ddprint("LEN: %d, %0X \n", hdr->tlen, hdr->tlen);
+    ddprint("SPT: %d, %0X \n", hdr->sport, hdr->sport);
+    ddprint("DPT: %d, %0X \n", hdr->dport, hdr->dport);
+    ddprint("SEQ: %d, %0X \n", hdr->seqno, hdr->seqno);
+    ddprint("ACK: %d, %0X \n", hdr->ackno, hdr->ackno);
+    ddprint("FLG: %X \n", hdr->flags);
+    ddprint("WIN: %X %d\n", hdr->window, hdr->window);
+    ddprint("CHK: %X \n", hdr->chksum);
+    ddprint("URG: %X \n", hdr->urgent);
+    ddprint("-----------\n");
 }
 
 /* Prints a buffer and its ASCII values */
@@ -91,12 +91,12 @@ void
 dump_buffer(uchar* buf, int len)
 {
     int i;
-    dprint("Buffer Dump, length: %d\n", len);
-    dprint("-----------------------\n");
+    ddprint("Buffer Dump, length: %d\n", len);
+    ddprint("-----------------------\n");
     for (i = 0; i < (len / 4); i++) {
-        dprint("%0X %0X %0X %0X", buf[i*4] & 0xff, buf[i*4+1] & 0xff, buf[i*4+2] & 0xff, buf[i*4+3] & 0xff);
-        dprint("\n");
-        dprint("%c %c %c %c", buf[i*4], buf[i*4+1], buf[i*4+2], buf[i*4+3]);
-        dprint("\n\n");
+        ddprint("%0X %0X %0X %0X", buf[i*4] & 0xff, buf[i*4+1] & 0xff, buf[i*4+2] & 0xff, buf[i*4+3] & 0xff);
+        ddprint("\n");
+        ddprint("%c %c %c %c", buf[i*4], buf[i*4+1], buf[i*4+2], buf[i*4+3]);
+        ddprint("\n\n");
     }
 }

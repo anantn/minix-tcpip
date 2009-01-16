@@ -12,7 +12,7 @@ main(int argc, char** argv) {
 	char info [DATA_SIZE];
 	char buffer[DATA_SIZE];
 	ipaddr_t src_ip ;
-	int port_no = 6000 ;
+	int port_no = 4000 ;
     ret = tcp_socket();
 	if (ret == 0 )
 	{

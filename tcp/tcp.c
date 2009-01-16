@@ -27,7 +27,7 @@ send_tcp_packet(ipaddr_t dst, u16_t src_port, u16_t dst_port,
 	Header* hdr = (Header*)calloc(1, sizeof(Header));
 	Data* dat = (Data*)calloc(1, sizeof(Data));
 	dat->len = data_sz;
-	dat->content = data;
+	dat->content = (uchar *)data;
 
 	hdr->dst = dst;
 	hdr->sport = src_port;
@@ -65,7 +65,7 @@ recv_tcp_packet(ipaddr_t* src, u16_t* src_port, u16_t* dst_port,
 	*flags = (u8_t)(hdr->flags & 0xFF);
 	*win_sz = hdr->window;
 
-	data = dat->content;
+	data = (char *)dat->content;
 	*data_sz = dat->len;
 
 	return ret;
@@ -92,7 +92,7 @@ _send_tcp_packet(Header* hdr, Data* dat)
 	dump_header(hdr);
 	dump_buffer(dat->content, dat->len);
 */
-	dprint ("\n### out ");
+	ddprint ("\n### out ");
 	show_packet (hdr, dat->content, dat->len);
 
     swap_header(hdr, 0);
@@ -164,7 +164,7 @@ _recv_tcp_packet(Header* hdr, Data* dat)
 	dump_header(hdr);
 	dump_buffer(dat->content, dat->len);
 */
-	dprint ("\n### in ");
+	ddprint ("\n### in ");
 	show_packet (hdr, dat->content, dat->len);
 
     return dat->len;
@@ -447,7 +447,7 @@ alarm_signal_handler(int sig)
 
 	/* update the ack_no and window_size
 	 * as it may change */
-	dprint ("\n### retransmitting packet rt-no %d", cc->retransmission_counter);
+	ddprint ("\n### retransmitting packet rt-no %d", cc->retransmission_counter);
 	cc->unack_header->ackno = cc->remote_seqno ;
 	cc->unack_header->window = DATA_SIZE - cc->in_buffer->len ;
 	bytes_sent = _send_tcp_packet (cc->unack_header, cc->unack_data ) ;
@@ -687,6 +687,12 @@ handle_packets ()
 		len = _recv_tcp_packet (&hdr, &dat) ;
 		dprint ("handle_packet: received packet with len %d\n", len );
 	} while (len < 0 );
+
+	if (hdr.dport != Head->sport )
+	{
+		dprint ("### handle_packet: received packet for wrong port %u, when expecting %u\n", hdr.dport, Head->sport );
+		return -1 ;
+	}
 
 	switch (cc->state )
 	{
