@@ -98,11 +98,6 @@ typedef struct _TCPCtl {
     u32_t remote_window ;
     
     Data* in_buffer;
-
-	int unack_header_present ;
-	int retransmission_counter ;
-	Header *unack_header ;
-	Data *unack_data ;
 	Data* out_buffer;
     int remaining;
 } TCPCtl;

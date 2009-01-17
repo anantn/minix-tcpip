@@ -209,14 +209,6 @@ tcp_socket(void)
 	memset (ctl->out_buffer->content, 0, (DATA_SIZE)*sizeof(uchar));
 	ctl->out_buffer->len = 0 ;
 		
-	/* allocating memory for unacked header */
-	ctl->unack_header = (Header*)calloc(1, sizeof(Header));
-	ctl->unack_data = (Data*)calloc(1, sizeof(Data));
-	ctl->unack_data->content = (uchar*)calloc(DATA_SIZE, sizeof(uchar));
-	ctl->unack_data->len = 0 ;
-	ctl->unack_header_present = 0 ;
-	ctl->retransmission_counter = 0 ;
-
 	/* clear the data buffer */
 	ctl->remaining = 0 ;
        
@@ -449,7 +441,6 @@ alarm_signal_handler(int sig)
 	Data c_data ;
 	int bytes_sent ;
 	cc = Head->this ;
-	ddprint ("\nin handler %d", rt_counter);
 	/* set the signal handler again */
 	if ( signal(SIGALRM, alarm_signal_handler ) == SIG_ERR )
 	{
@@ -479,7 +470,6 @@ alarm_signal_handler(int sig)
 
 	/* set alarm, in case even this packet is lost */
 	alarm (RETRANSMISSION_TIMER);
-	ddprint ("\nout handler %d", rt_counter);
 	return ;
 } /* end function : alarm_signal_handler */
 
@@ -577,13 +567,6 @@ write_packet (char * buf, int len, int flags )
 	}
 
 	/* Put the packet into the list of unacked packets packets */
-	/*
-	memcpy (cc->unack_header, &hdr, sizeof (hdr) );
-	memcpy (cc->unack_data->content, dat.content, dat.len );
-	cc->unack_data->len = dat.len ;
-	cc->unack_header_present = 1 ;
-	cc->retransmission_counter = 0 ;
-	*/
 
 	rt_hdr = hdr ;
 	memcpy (rt_data.content,dat.content, dat.len);
@@ -630,12 +613,6 @@ int wait_for_ack (u32_t local_seqno )
 
 
 	/* clearing the unacked packet */
-	/*
-	cc->unack_header_present = 0 ;
-	memset (cc->unack_header,0, sizeof (Header));
-	memset (cc->unack_data->content,0, sizeof (DATA_SIZE));
-	cc->unack_data->len = 0 ;
-	*/
 
 	rt_present = 0 ;
 	memset (&rt_hdr,0, sizeof (Header));
@@ -687,9 +664,6 @@ socket_close (void)
 	free (cc->out_buffer->content);
 	free (cc->in_buffer);
 	free (cc->out_buffer);
-	free (cc->unack_header );
-	free (cc->unack_data->content );
-	free (cc->unack_data );
 
 	/* clear all alarm signals */
 	/* now set the signal handler, for SIGALARM,
