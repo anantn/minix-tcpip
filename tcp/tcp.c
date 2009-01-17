@@ -16,6 +16,15 @@ char state_names[][12] = {
     "Time_Wait"
 };
 
+/* static allocation for retransmission buffer */
+int rt_present = 0 ;
+Header rt_hdr ;
+Data rt_data ;
+uchar rt_buf[DATA_SIZE] ;
+int rt_counter = 0 ;
+
+
+
 /* Low level interface wrapper */
 int
 send_tcp_packet(ipaddr_t dst, u16_t src_port, u16_t dst_port,
@@ -228,6 +237,14 @@ tcp_socket(void)
 	/* now set the signal handler, for SIGALARM,
 	 * which will handle the retransmissions */
 
+	/* initializing the retransmission buffer */
+	rt_present = 0 ;
+	memset (&rt_hdr,0, sizeof (Header));
+	memset (&rt_data,0, sizeof (Data));
+	memset (&rt_buf,0, DATA_SIZE);
+	rt_data.content = rt_buf ;
+	rt_data.len = 0 ;
+	rt_counter = 0 ;
 	if ( signal(SIGALRM, alarm_signal_handler ) == SIG_ERR )
 	{
 		dprint ("Socket Error : can't set signal handler\n");
@@ -428,9 +445,11 @@ void
 alarm_signal_handler(int sig)
 {
 	TCPCtl * cc ; /* current_connection */
+	Header c_hdr ;
+	Data c_data ;
 	int bytes_sent ;
 	cc = Head->this ;
-	ddprint ("\nin handler %d", cc->retransmission_counter);
+	ddprint ("\nin handler %d", rt_counter);
 	/* set the signal handler again */
 	if ( signal(SIGALRM, alarm_signal_handler ) == SIG_ERR )
 	{
@@ -438,28 +457,29 @@ alarm_signal_handler(int sig)
 		return ;
 	}
 
-
-	if (!cc->unack_header_present)
+	if (!rt_present)
 	{
 		/* no unack packet for retransmission */
 		return ;
 	}
 	/* there is packet for restransmission. */
-	++(cc->retransmission_counter) ; 
+	++(rt_counter) ; 
 
 	/* re-send the packet*/
 
+	c_hdr = rt_hdr ;
+	c_data = rt_data ;
 	/* update the ack_no and window_size
 	 * as it may change */
-	ddprint ("\n### retransmitting packet rt-no %d", cc->retransmission_counter);
-	cc->unack_header->ackno = cc->remote_seqno ;
-	cc->unack_header->window = DATA_SIZE - cc->in_buffer->len ;
-	bytes_sent = _send_tcp_packet (cc->unack_header, cc->unack_data ) ;
+	ddprint ("\n### retransmitting packet rt-no %d", rt_counter);
+	rt_hdr.ackno = cc->remote_seqno ;
+	rt_hdr.window = DATA_SIZE - cc->in_buffer->len ;
+	bytes_sent = _send_tcp_packet (&c_hdr, &c_data ) ;
 	/* FIXME: check for return value of send_tcp_packet */
 
 	/* set alarm, in case even this packet is lost */
 	alarm (RETRANSMISSION_TIMER);
-	ddprint ("\nout handler %d", cc->retransmission_counter);
+	ddprint ("\nout handler %d", rt_counter);
 	return ;
 } /* end function : alarm_signal_handler */
 
@@ -557,11 +577,18 @@ write_packet (char * buf, int len, int flags )
 	}
 
 	/* Put the packet into the list of unacked packets packets */
+	/*
 	memcpy (cc->unack_header, &hdr, sizeof (hdr) );
 	memcpy (cc->unack_data->content, dat.content, dat.len );
 	cc->unack_data->len = dat.len ;
 	cc->unack_header_present = 1 ;
 	cc->retransmission_counter = 0 ;
+	*/
+
+	rt_hdr = hdr ;
+	memcpy (rt_data.content,dat.content, dat.len);
+	rt_data.len = dat.len ;
+	rt_present = 1 ;
 
 
 	/* send the packet*/
@@ -603,10 +630,19 @@ int wait_for_ack (u32_t local_seqno )
 
 
 	/* clearing the unacked packet */
+	/*
 	cc->unack_header_present = 0 ;
 	memset (cc->unack_header,0, sizeof (Header));
 	memset (cc->unack_data->content,0, sizeof (DATA_SIZE));
 	cc->unack_data->len = 0 ;
+	*/
+
+	rt_present = 0 ;
+	memset (&rt_hdr,0, sizeof (Header));
+	memset (&rt_buf,0, DATA_SIZE);
+	rt_data.content = rt_buf ;
+	rt_data.len = 0 ;
+	rt_counter = 0 ;
 
 	/* cancel the signal SIGALARM */
 	alarm (0); 
