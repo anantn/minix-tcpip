@@ -34,10 +34,12 @@ handle_get(char* htdocs)
     struct stat buf;
     
     do {
+		dprint("Going to read... ");
         tcp_read(ptr, 1);
+		dprint("Done: %c, %d\n", ptr[0], (ptr[0] != 32));
         ptr++; i++;
-    } while (!strncmp(ptr, " ", 1) && (i < 256));
-    
+    } while ((ptr[0] != 32) && (i < 256));
+
     fPath = (char*)calloc(strlen(htdocs) + i + 1, sizeof(char));
     memcpy(fPath, htdocs, strlen(htdocs));
     memcpy(fPath + strlen(htdocs), path, i);
@@ -84,10 +86,10 @@ serve(char* htdocs)
     
     /* First, let's find out which HTTP method is requested */
     tcp_read(method, 4);
-    
+
     switch (method[0]) {
         case 'G':
-            if (!strcmp(method, "GET ")) {
+            if (method[1] == 'E' && method[2] == 'T' && method[3] == ' ') {
                 handle_get(htdocs);
                 tcp_close();
                 return 0;

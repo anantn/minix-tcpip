@@ -26,4 +26,4 @@ http_test_server: http_test_server.c
 	gcc $(CFLAGS) -o http_test_server http_test_server.c $(LDFLAGS)
 
 clean:
-	rm -f tcp_send tcp_recv tcp_actual_chksum tcp_connect tcp_listen tcp_connect_parallel
+	rm -f tcp_send tcp_recv tcp_actual_chksum tcp_connect tcp_listen tcp_connect_parallel http_test_server
