@@ -9,22 +9,18 @@
 #include "ip.h"
 
 #ifdef DEBUG
-#ifdef VERBOSE  
-#define dprint printf 
+ #ifdef VERBOSE  
+  #define ddprint dprint
+ #else
+  #define ddprint (void)
+ #endif
+ #define dprint printf
 #else
-#define dprint noprint 
-#endif
-#define ddprint printf
-#else
-#define dprint noprint
-#define ddprint noprint
+ #define dprint (void)
 #endif
 
 #ifndef IP_PROTO_TCP
 #define IP_PROTO_TCP 6
-#endif
-#ifndef inet_addr
-#define inet_addr inet_aton
 #endif
 
 #define DATA_SIZE   8148
