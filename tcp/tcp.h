@@ -23,6 +23,10 @@
 #define IP_PROTO_TCP 6
 #endif
 
+#ifdef LINUX
+#define inet_addr inet_aton
+#endif
+
 #define DATA_SIZE   8148
 #define PACKET_SIZE 8192
 #define HEADER_SIZE 20

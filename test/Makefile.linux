@@ -1,24 +1,29 @@
+
+CFLAGS = -g -Wall -ansi -DDEBUG -DLINUX
 LDFLAGS = -I../ip-linux/ -I../tcp/ ../tcp/libtcp.a ../ip-linux/libip.a
 
-all: tcp_actual_chksum tcp_send tcp_recv tcp_connect tcp_listen tcp_connect_parallel
+all: tcp_actual_chksum tcp_send tcp_recv tcp_connect tcp_listen tcp_connect_parallel http_test_server
 
 tcp_send: tcp_send.c
-	gcc -g -Wall -ansi -o tcp_send tcp_send.c $(LDFLAGS)
+	gcc $(CFLAGS) -o tcp_send tcp_send.c $(LDFLAGS)
 
 tcp_actual_chksum: tcp_actual_chksum.c
-	gcc -g -Wall -ansi -o tcp_actual_chksum tcp_actual_chksum.c $(LDFLAGS)
+	gcc $(CFLAGS) -o tcp_actual_chksum tcp_actual_chksum.c $(LDFLAGS)
 
 tcp_recv: tcp_recv.c
-	gcc -g -Wall -ansi -o tcp_recv tcp_recv.c $(LDFLAGS)
+	gcc $(CFLAGS) -o tcp_recv tcp_recv.c $(LDFLAGS)
 
 tcp_connect: tcp_connect.c
-	gcc -g -Wall -ansi -o tcp_connect tcp_connect.c $(LDFLAGS)
+	gcc $(CFLAGS) -o tcp_connect tcp_connect.c $(LDFLAGS)
 
 tcp_listen: tcp_listen.c
-	gcc -g -Wall -ansi -o tcp_listen tcp_listen.c $(LDFLAGS)
+	gcc $(CFLAGS) -o tcp_listen tcp_listen.c $(LDFLAGS)
 
 tcp_connect_parallel: tcp_connect_parallel.c
-	gcc -g -Wall -ansi -o tcp_connect_parallel tcp_connect_parallel.c $(LDFLAGS)
+	gcc $(CFLAGS) -o tcp_connect_parallel tcp_connect_parallel.c $(LDFLAGS)
+
+http_test_server: http_test_server.c
+	gcc $(CFLAGS) -o http_test_server http_test_server.c $(LDFLAGS)
 
 clean:
 	rm -f tcp_send tcp_recv tcp_actual_chksum tcp_connect tcp_listen tcp_connect_parallel
