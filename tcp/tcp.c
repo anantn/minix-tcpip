@@ -129,11 +129,20 @@ _recv_tcp_packet(Header* hdr, Data* dat)
     ushort prot, idp;
     ipaddr_t src, dst;
     
-	do
+	/* looping is not gud idea,
+		as it interfere with signals */
+/*	do
 	{
 		len = ip_receive(&src, &dst, &prot, &idp, &data);
-	} while (len < 0 );
 
+	} while (len < 0 );
+*/
+
+	len = ip_receive(&src, &dst, &prot, &idp, &data);
+	if (len == -1 )
+	{
+		return -1 ;
+	}
     /* Extract header - pseudo and real, still in network order */
     hdr->src = src;
     hdr->dst = dst;
@@ -596,8 +605,20 @@ int wait_for_ack (u32_t local_seqno )
 
 	while ( local_seqno > cc->remote_ackno ) /*FIXME :need to worry about overflowing in comparision */
 	{
-		dprint ("wait_for_ack: calling handle_packet\n");
+		ddprint ("wait_for_ack: calling handle_packet\n");
 		handle_packets () ;
+		if ( cc->state == Last_Ack )
+		{
+			if (rt_counter == 2 )
+			{
+				cc->state = Closed ;
+				return -1 ;
+			}
+		}
+		if ( cc->state == Closed )
+		{
+			return -1 ;
+		}
 		dprint ("wait_for_ack: got ack %u, but expected ack %u\n", cc->remote_ackno, local_seqno );
 	} /*end while : */
 
@@ -697,6 +718,14 @@ handle_packets ()
 	{
 		len = _recv_tcp_packet (&hdr, &dat) ;
 		dprint ("handle_packet: received packet with len %d\n", len );
+		if ( cc->state == Last_Ack )
+		{
+			if (rt_counter == 2 )
+			{
+				cc->state = Closed ;
+				return -1 ;
+			}
+		}
 	} while (len < 0 );
 
 	if (hdr.dport != Head->sport )

@@ -10,13 +10,14 @@
 
 #ifdef DEBUG
  #ifdef VERBOSE  
-  #define ddprint dprint
+  #define dprint printf
  #else
-  #define ddprint (void)
- #endif
- #define dprint printf
-#else
- #define dprint (void)
+  #define dprint noprint
+ #endif /* endif VERBOSE */
+ #define ddprint printf
+#else /* else DEBUG */
+ #define dprint noprint
+ #define ddprint noprint
 #endif
 
 #ifndef IP_PROTO_TCP
