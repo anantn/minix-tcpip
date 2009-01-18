@@ -2,7 +2,7 @@
 #include <sys/stat.h>
 #include <tcp.h>
 #include <dirent.h>
-
+#include <errno.h>
 
 void
 send_initial_response(int code)
@@ -34,18 +34,32 @@ handle_get(char* htdocs)
     struct stat buf;
     
     do {
-		dprint("Going to read... ");
         tcp_read(ptr, 1);
-		dprint("Done: %c, %d\n", ptr[0], (ptr[0] != 32));
         ptr++; i++;
-    } while ((ptr[0] != 32) && (i < 256));
+    } while ((*(ptr - 1) != 32) && (i < 256));
 
-    fPath = (char*)calloc(strlen(htdocs) + i + 1, sizeof(char));
+    fPath = (char*)calloc(strlen(htdocs) + i, sizeof(char));
     memcpy(fPath, htdocs, strlen(htdocs));
-    memcpy(fPath + strlen(htdocs), path, i);
-    
+    memcpy(fPath + strlen(htdocs), path, i - 1);
+    dprint("File path determined: %s\n", fPath);
+	dprint("Flushing read buffer... ");
+
+	i = 0;
+	ptr = path;
+	while (tcp_read(ptr, 1)) {
+		i++;
+        if (ptr[3] == '\r' && ptr[2] == '\n' && ptr[1] == '\r' && ptr[0] == '\n') {
+		    dprint("DONE, read %d bytes more\n", i);
+            break;
+	    }
+		ptr[3] = ptr[2];
+		ptr[2] = ptr[1];
+		ptr[1] = ptr[0];
+	}
+
     if (stat(fPath, &buf) != 0) {
         /* Cannot access file because it does not exist? */
+		dprint("Requested file does not exist, stat returned %s :(\n", strerror(errno));
         send_initial_response(404);
         tcp_write("\r\n", 2);
         return;
@@ -59,6 +73,7 @@ handle_get(char* htdocs)
     fclose(f);
     
     /* Send response */
+	dprint("File found, sending headers and content\n");
     send_initial_response(200);
     /* FIXME: Output other headers */
     tcp_write("\r\n", 2);
