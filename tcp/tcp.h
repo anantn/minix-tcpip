@@ -167,6 +167,4 @@ void alarm_signal_handler(int sig) ;
 /* for debugging support */
 int noprint (char *fmt, ...) ;
 
-
-
 #endif /* _TCP_H */

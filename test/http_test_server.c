@@ -11,7 +11,7 @@ main(void)
     tcp_write("GET /foo.txt HTTP/1.1\r\n\r\n", 25);
     
     dat = (char*)calloc(32, sizeof(char));
-    while ((len = tcp_read(dat, 32))!= -1 ) {
+    while ((len = tcp_read(dat, 32))!= -1) {
         printf ("\ndata len %d =\n", len ) ;
 		write (1, dat, len );
 		printf ("\ndone\n");
