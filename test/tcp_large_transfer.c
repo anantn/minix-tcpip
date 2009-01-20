@@ -1,5 +1,9 @@
 #include <tcp.h>
 
+/* To run this program 
+ ETH=2 ./tcp_large_transfer
+ * */
+
 int
 main()
 {

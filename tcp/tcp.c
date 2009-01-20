@@ -363,6 +363,7 @@ tcp_write (char * buf, int len )
 	int bytes_left ;
 	int bytes_sent ;
 	int packet_size ;
+	int temp ;
 	TCPCtl * cc ; /* current_connection */
 	cc = Head->this ;
 
@@ -374,17 +375,20 @@ tcp_write (char * buf, int len )
 		return -1; 	
 	}
 	
+	bytes_sent = 0 ;
 	bytes_left = len ;
 	dprint ("tcp_write: writing %d bytes\n", len);
 	while (bytes_left > 0 )
 	{
 		packet_size = MIN (cc->remote_window, bytes_left ) ;
 		dprint ("tcp_write: writing %d bytes of packet by calling write_packet\n", packet_size);
-		bytes_sent = write_packet (buf, packet_size, 0 ) ;
+		temp = write_packet (buf + bytes_sent , packet_size, 0 ) ;
+		bytes_sent += temp ;
 
-		/* FIXME: upgrade the code for supporting multiple writes to send all data*/
-		return bytes_sent ;
+		bytes_left = len - bytes_sent ;
 
+		/* FIXME:upgrade the code for supporting multiple writes to send all data*/
+		return bytes_sent ;		
 	} /* end while : bytes left*/
 	return bytes_sent ;
 	
@@ -591,7 +595,7 @@ write_packet (char * buf, int len, int flags )
 	bytes_sent = _send_tcp_packet (&hdr, &dat);
 
 	wait_for_ack (ack_to_wait) ;
-	dprint ("write_packet:Packet sent successfully\n");
+	ddprint ("write_packet:Packet sent successfully\n");
 	return bytes_sent ;
 } /* end function : write_packet*/
 
@@ -619,7 +623,7 @@ int wait_for_ack (u32_t local_seqno )
 		{
 			return -1 ;
 		}
-		dprint ("wait_for_ack: got ack %u, but expected ack %u\n", cc->remote_ackno, local_seqno );
+		ddprint ("wait_for_ack: got ack %u, but expected ack %u\n", cc->remote_ackno, local_seqno );
 	} /*end while : */
 
 
@@ -951,7 +955,7 @@ int handle_Established_state (Header *hdr, Data *dat)
 	cc->remote_window = hdr->window ; /* updating remote window size*/
 
 	/* check if u have enough space in incoming buffer*/
-	if (( dat->len == 0) || (cc->in_buffer->len + dat->len < DATA_SIZE ) )
+	if (( dat->len == 0) || (cc->in_buffer->len + dat->len <= DATA_SIZE ) )
 	{
 		/* accept the packet*/
 		dprint("Length: %d\n", dat->len);

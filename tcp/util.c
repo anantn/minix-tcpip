@@ -60,7 +60,7 @@ void show_packet (Header * hdr, uchar * buf, int len )
 	if (hdr->flags & FIN ) ddprint( "F");
 	if (hdr->flags & RST) ddprint( "R");
 	ddprint("]}  DATA{%d[", len);
-	for (i = 0 ; i < len ; ++i ) ddprint ( "%c", buf[i] );
+	for (i = 0 ; i < len && i < 10 ; ++i ) ddprint ( "%c", buf[i] );
 	ddprint ("]} %s\n", state_names[Head->this->state]);
 
 }

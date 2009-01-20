@@ -1,5 +1,9 @@
 #include <tcp.h>
 
+/* To run this program 
+ ETH=1 ./tcp_generic_server
+ * */
+
 int
 main()
 {
