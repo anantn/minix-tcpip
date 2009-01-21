@@ -8,6 +8,7 @@
 #include <signal.h>
 #include "ip.h"
 
+#define VERBOSE 1
 #ifdef DEBUG
  #ifdef VERBOSE  
   #define dprint printf

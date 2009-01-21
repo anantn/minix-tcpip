@@ -320,7 +320,9 @@ tcp_read (char *buf, int maxlen )
 {
 	int remaining_bytes = 0 ;
 	int bytes_read = 0 ;
+	int old_window, new_window ;
 	TCPCtl * cc ; /* current_connection */
+	
 	cc = Head->this ;
 
 
@@ -341,6 +343,7 @@ tcp_read (char *buf, int maxlen )
 		handle_packets ();
 	} /* end while : buffer empty */
 
+	old_window = DATA_SIZE - cc->in_buffer->len ;
 	bytes_read = MIN (cc->in_buffer->len, maxlen );
 	/* copy the bytes into buf given by user */
 	memcpy (buf, cc->in_buffer->content, bytes_read );
@@ -354,6 +357,17 @@ tcp_read (char *buf, int maxlen )
 	/* clear the data buffer */
 	memset (cc->in_buffer->content + remaining_bytes, 0, (DATA_SIZE-remaining_bytes)*sizeof(uchar));
 
+	new_window = DATA_SIZE - cc->in_buffer->len ;
+	if (old_window == 0 )
+	{
+		if (new_window != 0 )
+		{
+			/* created free space in buffer */
+			/* tell the sender about it by sending ack packet */
+			ddprint ("tcp_read: send ack for advertising the free buffer %d\n", new_window);
+			send_ack ();
+		}
+	}
 	return bytes_read ;
 } /* end function : tcp_read () */
 
@@ -380,7 +394,20 @@ tcp_write (char * buf, int len )
 	dprint ("tcp_write: writing %d bytes\n", len);
 	while (bytes_left > 0 )
 	{
+/*		if (cc->remote_window < bytes_left )
+			packet_size = cc->remote_window ;
+		else
+			packet_size = bytes_left ;
+*/
 		packet_size = MIN (cc->remote_window, bytes_left ) ;
+		while (packet_size == 0 ) 
+		{
+			dprint("tcp_write: remote window is empty %d (%d, %d), waiting\n",packet_size, cc->remote_window, bytes_left);
+			handle_packets ();
+			packet_size = MIN (cc->remote_window, bytes_left ) ;
+		}
+
+
 		dprint ("tcp_write: writing %d bytes of packet by calling write_packet\n", packet_size);
 		temp = write_packet (buf + bytes_sent , packet_size, 0 ) ;
 		bytes_sent += temp ;
@@ -609,7 +636,7 @@ int wait_for_ack (u32_t local_seqno )
 
 	while ( local_seqno > cc->remote_ackno ) /*FIXME :need to worry about overflowing in comparision */
 	{
-		ddprint ("wait_for_ack: calling handle_packet\n");
+		ddprint ("wait_for_ack: calling handle_packets\n");
 		handle_packets () ;
 		if ( cc->state == Last_Ack )
 		{
@@ -717,11 +744,11 @@ handle_packets ()
 	TCPCtl * cc ; /* current_connection*/
 	cc = Head->this ;
 
-	dprint ("handle_packet: state = %s, waiting for packet\n", state_names[cc->state] );
+	dprint ("handle_packets: state = %s, waiting for packet\n", state_names[cc->state] );
 	do
 	{
 		len = _recv_tcp_packet (&hdr, &dat) ;
-		dprint ("handle_packet: received packet with len %d\n", len );
+		dprint ("handle_packets: received packet with len %d\n", len );
 		if ( cc->state == Last_Ack )
 		{
 			if (rt_counter == 2 )
@@ -734,7 +761,7 @@ handle_packets ()
 
 	if (hdr.dport != Head->sport )
 	{
-		dprint ("### handle_packet: received packet for wrong port %u, when expecting %u\n", hdr.dport, Head->sport );
+		dprint ("### handle_packets: received packet for wrong port %u, when expecting %u\n", hdr.dport, Head->sport );
 		return -1 ;
 	}
 
