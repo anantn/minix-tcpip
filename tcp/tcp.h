@@ -151,7 +151,7 @@ void show_packet(Header * hdr, uchar * buf, int len );
 int can_read(int state);
 int can_write(int state);
 int handle_packets(void);
-int send_ack(void) ;
+int send_ack(int flags) ;
 int setup_packet(Header *hdr );
 int wait_for_ack(u32_t local_seqno);
 int write_packet(char * buf, int len, int flags );

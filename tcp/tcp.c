@@ -365,7 +365,7 @@ tcp_read (char *buf, int maxlen )
 			/* created free space in buffer */
 			/* tell the sender about it by sending ack packet */
 			ddprint ("tcp_read: send ack for advertising the free buffer %d\n", new_window);
-			send_ack ();
+			send_ack (0);
 		}
 	}
 	return bytes_read ;
@@ -589,8 +589,10 @@ write_packet (char * buf, int len, int flags )
 		/*FIN is single bit data, incrementing local_seqno by one*/
 		if ( len == 0 )	
 		{
-			cc->local_seqno = cc->local_seqno + 1 ; /*FIXME : handle overflowing*/
-			ack_to_wait  = cc->local_seqno ; 
+			/* after sending FIN packet, should i increment seq no by one ?? 
+			 * the RFC example says yes, but test written in CNP does not seems to agree with it.*/
+/*			cc->local_seqno = cc->local_seqno + 1 ;*/ /*FIXME : handle overflowing*/
+			ack_to_wait  = cc->local_seqno + 1  ; 
 		}
 		switch ( cc->state )
 		{
@@ -622,7 +624,7 @@ write_packet (char * buf, int len, int flags )
 	bytes_sent = _send_tcp_packet (&hdr, &dat);
 
 	wait_for_ack (ack_to_wait) ;
-	ddprint ("write_packet:Packet sent successfully\n");
+	dprint ("write_packet:Packet sent successfully\n");
 	return bytes_sent ;
 } /* end function : write_packet*/
 
@@ -636,7 +638,7 @@ int wait_for_ack (u32_t local_seqno )
 
 	while ( local_seqno > cc->remote_ackno ) /*FIXME :need to worry about overflowing in comparision */
 	{
-		ddprint ("wait_for_ack: calling handle_packets\n");
+		dprint ("wait_for_ack: calling handle_packets\n");
 		handle_packets () ;
 		if ( cc->state == Last_Ack )
 		{
@@ -650,7 +652,15 @@ int wait_for_ack (u32_t local_seqno )
 		{
 			return -1 ;
 		}
-		ddprint ("wait_for_ack: got ack %u, but expected ack %u\n", cc->remote_ackno, local_seqno );
+		if ( cc->state == Closing )
+		{
+			if (rt_counter == 4 )
+			{
+				cc->state = Closed ;
+				return -1 ;
+			}
+		}
+		dprint ("wait_for_ack: got ack %u, but expected ack %u\n", cc->remote_ackno, local_seqno );
 	} /*end while : */
 
 
@@ -856,7 +866,7 @@ int handle_Listen_state (Header *hdr, Data *dat)
 	cc->state = Syn_Recv ; 
 	dprint ("handle_Listen_state: Got Syn, sending SYN+ACK\n");
 
-	send_ack ();
+	send_ack (SYN);
 
 	return 1;	
 }
@@ -902,7 +912,7 @@ int handle_Syn_Sent_state  (Header *hdr, Data *dat)
 		cc->remote_window = hdr->window ; /* updating remote window size**/
 		/* need to send ack for this*/
 		cc->state = Established ; 
-		send_ack ();
+		send_ack (0);
 		return 1 ;
 	}
 	/* got just SYN packet
@@ -911,7 +921,7 @@ int handle_Syn_Sent_state  (Header *hdr, Data *dat)
 	cc->state = Syn_Recv ; 
 	cc->remote_seqno = hdr->seqno + 1; /*FIXME :need to worry about overflowing*/
 	cc->remote_window = hdr->window ; /* updating remote window size*/
-	send_ack ();
+	send_ack (0);
 	
 	return 1;	
 }
@@ -968,12 +978,16 @@ int handle_Established_state (Header *hdr, Data *dat)
 	TCPCtl * cc ; /* current_connection*/
 	cc = Head->this ;
 
+	/* FIXME: in case of Closing state
+	 * may be hdr->seqno may b incremented by one...
+	 * as this behaviour is not clear in RFC
+	 * */
 	/* check if it is correct packet*/
 	if (cc->remote_seqno != hdr->seqno )
 	{
 		dprint ("00000 handle_Established_state: Received unexpected packet, expected %u, recived %u, ACKing with old ACK number\n", cc->remote_seqno, hdr->seqno);	
 		/* sending ack, just to tell other side dat something is wrong.*/
-			send_ack ();
+			send_ack (0);
 			return -1 ;
 	}
 
@@ -1000,16 +1014,17 @@ int handle_Established_state (Header *hdr, Data *dat)
 			{
 				dprint ("ACKing the FIN packet (packet had data %d) with ACK no %u\n", dat->len, cc->remote_seqno );
 			}
-			send_ack ();
+			send_ack (0);
 		}
 		else
 		{
 			if ( hdr->flags & FIN )
 			{
 				/* as FIN flag is 1 bit of data*/
-				cc->remote_seqno = hdr->seqno + 1 ; /*FIXME :need to worry about overflowing*/
-				dprint("ACKing the FIN packet with ACK no %u\n",cc->remote_seqno);
-				send_ack ();
+				/* cc->remote_seqno = hdr->seqno + 1 ; */  /*FIXME :need to worry about overflowing*/
+				cc->remote_seqno = hdr->seqno ; 
+				dprint("ACKing the FIN packet with ACK no %u\n",cc->remote_seqno+1);
+				send_ack (FIN);
 				switch ( cc->state )
 				{
 					case Established : 
@@ -1038,7 +1053,7 @@ int handle_Established_state (Header *hdr, Data *dat)
 		 send the ack with old ack number and
 		 with smaller window size*/
 		dprint("Packet dropped as lack of buffer: ack sending with old ACK no.\n");
-		send_ack ();
+		send_ack (0);
 	}
 	/* FIXME : return something meaningfull*/
 	return 1;	
@@ -1047,7 +1062,7 @@ int handle_Established_state (Header *hdr, Data *dat)
 
 
 /* ############ Support functions ##########*/
-int send_ack ()
+int send_ack (int flags)
 {
 	Data dat ;	
 	Header hdr ;
@@ -1073,7 +1088,15 @@ int send_ack ()
 	}
 	else
 	{
-		dprint("send_ack: sending simple ACK\n");
+		if (flags & FIN )
+		{
+			hdr.ackno = hdr.ackno + 1 ;
+			dprint("send_ack: sending ACK for FIN\n");
+		}
+		else
+		{
+			dprint("send_ack: sending simple ACK\n");
+		}
 	}
 	bytes_sent = _send_tcp_packet (&hdr, &dat);
 	dprint("send_ack: sent....\n\n");
