@@ -208,13 +208,13 @@ tcp_socket(void)
 	
 	/* allocating memory for incomming buffer */
 	ctl->in_buffer = (Data*)calloc(1, sizeof(Data));
-	ctl->in_buffer->content = (uchar*)calloc(DATA_SIZE, sizeof(uchar));
+	ctl->in_buffer->content = (uchar*)calloc(DATA_SIZE+1, sizeof(uchar));
 	memset (ctl->in_buffer->content, 0, (DATA_SIZE)*sizeof(uchar));
 	ctl->in_buffer->len = 0 ;
 
 	/* allocating memory for outgoing buffer */
 	ctl->out_buffer = (Data*)calloc(1, sizeof(Data));
-	ctl->out_buffer->content = (uchar*)calloc(DATA_SIZE, sizeof(uchar));
+	ctl->out_buffer->content = (uchar*)calloc(DATA_SIZE+1, sizeof(uchar));
 	memset (ctl->out_buffer->content, 0, (DATA_SIZE)*sizeof(uchar));
 	ctl->out_buffer->len = 0 ;
 		
