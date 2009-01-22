@@ -42,6 +42,8 @@
 typedef unsigned char uchar;
 typedef unsigned short ushort;
 
+extern int DROP_FLOW_DIRECTION ;
+extern int DROP_PACKET_COUNTER ;
 enum {
     URG = 0x20,
     ACK = 0x10,

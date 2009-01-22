@@ -2,7 +2,7 @@
 CFLAGS = -g -Wall -ansi -DDEBUG -DLINUX
 LDFLAGS = -I../ip-linux/ -I../tcp/ ../tcp/libtcp.a ../ip-linux/libip.a
 
-all: tcp_actual_chksum tcp_send tcp_recv tcp_connect tcp_listen tcp_connect_parallel tcp_generic_server tcp_large_transfer http_test_server tcp_close_parallel_client tcp_close_parallel_server
+all: tcp_actual_chksum tcp_send tcp_recv tcp_connect tcp_listen tcp_connect_parallel tcp_generic_server tcp_large_transfer http_test_server tcp_close_parallel_client tcp_close_parallel_server tcp_syn_ack_drop_server tcp_syn_ack_drop_client
 
 tcp_send: tcp_send.c
 	gcc $(CFLAGS) -o tcp_send tcp_send.c $(LDFLAGS)
@@ -36,7 +36,12 @@ tcp_close_parallel_client:  tcp_close_parallel_client.c
 
 tcp_close_parallel_server:  tcp_close_parallel_server.c
 	gcc $(CFLAGS) -o tcp_close_parallel_server tcp_close_parallel_server.c   $(LDFLAGS)
+	
+tcp_syn_ack_drop_server: tcp_syn_ack_drop_server.c
+	gcc $(CFLAGS) -o tcp_syn_ack_drop_server  tcp_syn_ack_drop_server.c   $(LDFLAGS)
 
+tcp_syn_ack_drop_client: tcp_syn_ack_drop_client.c
+	gcc $(CFLAGS) -o tcp_syn_ack_drop_client  tcp_syn_ack_drop_client.c   $(LDFLAGS)
 
 clean:
-	rm -f tcp_send tcp_recv tcp_actual_chksum tcp_connect tcp_listen tcp_connect_parallel tcp_generic_server tcp_large_transfer http_test_server tcp_close_parallel_client tcp_close_parallel_server
+	rm -f tcp_send tcp_recv tcp_actual_chksum tcp_connect tcp_listen tcp_connect_parallel tcp_generic_server tcp_large_transfer http_test_server tcp_close_parallel_client tcp_close_parallel_server tcp_syn_ack_drop_server tcp_syn_ack_drop_client

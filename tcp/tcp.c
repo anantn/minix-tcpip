@@ -80,6 +80,10 @@ recv_tcp_packet(ipaddr_t* src, u16_t* src_port, u16_t* dst_port,
 	return ret;
 }
 
+int tcp_packet_counter = 0 ;
+int tcp_flow_type = 0 ;  
+int DROP_FLOW_DIRECTION = -1 ;
+int DROP_PACKET_COUNTER = -1 ;
 /* Low level send and receive functions */
 int
 _send_tcp_packet(Header* hdr, Data* dat)
@@ -92,6 +96,7 @@ _send_tcp_packet(Header* hdr, Data* dat)
         return 0;
     }
     
+	++tcp_packet_counter ;
     hdr->src = my_ipaddr;
     hdr->prot = htons(IP_PROTO_TCP);
     hdr->tlen = htons(HEADER_SIZE + dat->len);
@@ -103,6 +108,16 @@ _send_tcp_packet(Header* hdr, Data* dat)
 */
 	ddprint ("\n### out ");
 	show_packet (hdr, dat->content, dat->len);
+/*	Code for packet dropping
+ * */
+	if (tcp_flow_type == DROP_FLOW_DIRECTION )
+	{
+		if ( tcp_packet_counter == DROP_PACKET_COUNTER ) 
+		{
+			ddprint ("\n### Dropping above packet...\n");
+			return dat->len ;
+		}
+	}	
 
     swap_header(hdr, 0);
     
@@ -271,6 +286,7 @@ tcp_connect (ipaddr_t dst, int port )
 
 	/* setting up status variables for this connection */
 	cc->type = TCP_CONNECT ;
+	tcp_flow_type = TCP_CONNECT ;
 	cc->local_seqno = 100 ; /* FIXME : better way to set initial seq-no ..??? */
 	Head->dport = port ;
 	Head->dst = dst ;
@@ -300,6 +316,7 @@ tcp_listen (int port, ipaddr_t *src)
 	
 	/* now change the state */
 	cc->type = TCP_LISTEN ;
+	tcp_flow_type = TCP_LISTEN ;
 	cc->state = Listen ; 
 	cc->local_seqno = 800 ; /* FIXME : better way to set initial seq-no ..??? */
 	Head->sport = port ; 
@@ -941,8 +958,9 @@ int handle_Syn_Recv_state (Header *hdr, Data *dat)
 		/* didn't get expected packet...
 		 so, tolerating garbage packet
 		 hence, not changing the state*/
-	dprint ("handle_Syn_Recv_state: didn't get ACK, so ignoring packet\n");
-		return -1 ;
+		dprint ("handle_Syn_Recv_state: didn't get ACK, so ignoring packet\n");
+		/* checking if it's retransmisson SYN packet, because SYN+ACK was dropped */
+		return (handle_Listen_state(hdr, dat)); 
 	}
 	/* FIXME : you may get FIN packet at this stage...
 	 then u need to change to FIN_WAIT_1 state*/
