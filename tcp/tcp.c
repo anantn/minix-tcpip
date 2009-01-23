@@ -978,11 +978,24 @@ int handle_Syn_Recv_state (Header *hdr, Data *dat)
 	cc->remote_ackno = hdr->ackno ;
 	cc->local_seqno = hdr->ackno ;
 	cc->remote_seqno = hdr->seqno + dat->len; /*FIXME :need to worry about overflowing*/
-	/*FIXME: this packet can contain data, so handle dat also */
 	cc->remote_window = hdr->window ; /* updating remote window size*/
 	/* need to send ack for this*/
 	cc->state = Established ; 
 	dprint ("handle_Syn_Recv_state: got ACK, going to Established state\n");
+	/*FIXME: this packet can contain data, so handle dat also */
+	/* check if u have enough space in incoming buffer*/
+	if (( dat->len > 0) || (cc->in_buffer->len + dat->len <= DATA_SIZE ) )
+	{
+	dprint ("handle_Syn_Recv_state: got data also in ACK packet\n");
+		/* there is data in this packet, and also there is space in buffer
+		 * so, put this data in buffer */
+		dprint("Length: %d\n", dat->len);
+		memcpy(cc->in_buffer->content, dat->content, dat->len);	
+		cc->in_buffer->len += dat->len;
+
+		cc->remote_seqno = hdr->seqno + dat->len ; /*FIXME :need to worry about overflowing*/
+	}
+
 	return 1;	
 } /* function : handle_Syn_Recv_state */
 
@@ -1016,11 +1029,10 @@ int handle_Established_state (Header *hdr, Data *dat)
 	/* check if u have enough space in incoming buffer*/
 	if (( dat->len == 0) || (cc->in_buffer->len + dat->len <= DATA_SIZE ) )
 	{
-		/* accept the packet*/
+		/* accept the packet */
 		dprint("Length: %d\n", dat->len);
 		memcpy(cc->in_buffer->content, dat->content, dat->len);	
 		cc->in_buffer->len += dat->len;
-
 
 		cc->remote_seqno = hdr->seqno + dat->len ; /*FIXME :need to worry about overflowing*/
 
