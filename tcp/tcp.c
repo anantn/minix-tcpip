@@ -649,15 +649,29 @@ write_packet (char * buf, int len, int flags )
 	return bytes_sent ;
 } /* end function : write_packet*/
 
+int
+is_valid_seq(u32_t local_seqno, u32_t remote_ackno)
+{
+	if (local_seqno > remote_ackno) {
+		return true;
+	} else {
+		if ((local_seqno > 0) && (localseqno < DATA_SIZE)
+				&& (remote_ackno > (65536 - DATA_SIZE))) {
+			return true;
+		}
+	}
+	return false;
+}
 
-int wait_for_ack (u32_t local_seqno )
+int
+wait_for_ack(u32_t local_seqno)
 {
 	TCPCtl * cc ; /* current_connection*/
 	cc = Head->this ;
 
 	alarm (RETRANSMISSION_TIMER);
 
-	while ( local_seqno > cc->remote_ackno ) /*FIXME :need to worry about overflowing in comparision */
+	while (is_valid_seq(local_seqno, cc->remote_ackno)) /*FIXME :need to worry about overflowing in comparision */
 	{
 		dprint ("wait_for_ack: calling handle_packets\n");
 		handle_packets () ;
