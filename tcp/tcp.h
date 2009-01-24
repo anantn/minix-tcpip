@@ -14,9 +14,9 @@
   #define dprint printf
  #else
   #define dprint noprint
- #endif /* endif VERBOSE */
+ #endif
  #define ddprint printf
-#else /* else DEBUG */
+#else
  #define dprint noprint
  #define ddprint noprint
 #endif
@@ -67,7 +67,6 @@ enum {
     Last_Ack,
     Time_Wait
 };
-    
 
 typedef struct _Header {
     /* First, the pseudoHeader */
@@ -117,8 +116,20 @@ typedef struct _TCPMux {
 } TCPMux;
 
 /* global state (single connection for now) */
-extern TCPMux* Head;
-extern char state_names[][12];
+extern static TCPMux* Head;
+extern static char state_names[][12] = {
+	"Closed",
+	"Listen",
+	"Syn_Sent",
+	"Syn_Recv",
+	"Established",
+	"Fin_Wait1",
+	"Fin_Wait2",
+	"Close_Wait",
+	"Closing",
+	"Last_Ack",
+	"Time_Wait"
+};
 
 /* public interface */
 int tcp_socket(void);
@@ -138,36 +149,38 @@ recv_tcp_packet(ipaddr_t* src, u16_t* src_port, u16_t* dst_port,
 	u32_t* seq_nb, u32_t* ack_nb, u8_t* flags, u16_t* win_sz,
 	char* data, int* data_sz);
 
-int _recv_tcp_packet(Header* hdr, Data* dat);
-int _send_tcp_packet(Header* hdr, Data* dat);
+static int _recv_tcp_packet(Header* hdr, Data* dat);
+static int _send_tcp_packet(Header* hdr, Data* dat);
 
 /* util functions */
-u16_t raw_checksum(uchar* dat, int len);
-void tcp_checksum(Header* hdr, Data* dat, int con);
-void dump_header(Header* hdr);
-void dump_buffer(uchar* dat, int len);
-void swap_header(Header* hdr, int ntoh);
-void show_packet(Header * hdr, uchar * buf, int len );
+static u16_t raw_checksum(uchar* dat, int len);
+static void tcp_checksum(Header* hdr, Data* dat, int con);
+static void dump_header(Header* hdr);
+static void dump_buffer(uchar* dat, int len);
+static void swap_header(Header* hdr, int ntoh);
+static void show_packet(Header * hdr, uchar * buf, int len );
 
 /* more support functions*/
-int can_read(int state);
-int can_write(int state);
-int handle_packets(void);
-int send_ack(int flags) ;
-int setup_packet(Header *hdr );
-int wait_for_ack(u32_t local_seqno);
-int write_packet(char * buf, int len, int flags );
+static int can_read(int state);
+static int can_write(int state);
+static int handle_packets(void);
+static int send_ack(int flags) ;
+static int setup_packet(Header *hdr );
+static int wait_for_ack(u32_t local_seqno);
+static int write_packet(char * buf, int len, int flags );
 
 /* state handling functions*/
-int handle_Closed_state(Header *hdr, Data *dat);
-int handle_Listen_state(Header *hdr, Data *dat);
-int handle_Syn_Sent_state(Header *hdr, Data *dat);
-int handle_Syn_Recv_state(Header *hdr, Data *dat);
-int handle_Established_state(Header *hdr, Data *dat);
+static int handle_Closed_state(Header *hdr, Data *dat);
+static int handle_Listen_state(Header *hdr, Data *dat);
+static int handle_Syn_Sent_state(Header *hdr, Data *dat);
+static int handle_Syn_Recv_state(Header *hdr, Data *dat);
+static int handle_Established_state(Header *hdr, Data *dat);
+
 /* signal handling function */
-void alarm_signal_handler(int sig) ;
+static void alarm_signal_handler(int sig) ;
 
 /* for debugging support */
-int noprint (char *fmt, ...) ;
+static int noprint (char *fmt, ...) ;
 
-#endif /* _TCP_H */
+#endif
+

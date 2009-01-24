@@ -6,14 +6,11 @@ CFLAGS = -I. -I../ip-linux/ -g -Wall -DDEBUG -DLINUX -ansi
 
 all: libtcp.a
 
-libtcp.a: tcp.o util.o
-	$(AR) rv libtcp.a tcp.o util.o
+libtcp.a: tcp.o
+	$(AR) rv libtcp.a tcp.o
 	$(RANLIB) libtcp.a
 
 tcp.o: tcp.c tcp.h
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-util.o: util.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:

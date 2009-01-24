@@ -5,8 +5,8 @@ RANLIB = touch
 CFLAGS = -DDEBUG -Wall -I/usr/local/include/cn -I../ip
 LDFLAGS = -L../ip -L/usr/local/lib -lip -lcn
 
-SOURCES = tcp.c util.c
-OBJECTS = tcp.o util.o
+SOURCES = tcp.c
+OBJECTS = tcp.o
 
 all: libtcp.a
 

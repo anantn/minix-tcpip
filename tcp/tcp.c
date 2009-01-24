@@ -1,32 +1,16 @@
 #include "tcp.h"
 
-TCPMux* Head;
-
-char state_names[][12] = {
-	"Closed",
-	"Listen",
-	"Syn_Sent",
-	"Syn_Recv",
-	"Established",
-	"Fin_Wait1",
-	"Fin_Wait2",
-	"Close_Wait",
-	"Closing",
-	"Last_Ack",
-	"Time_Wait"
-};
-
 /* static allocation for retransmission buffer */
-int             rt_present = 0;
-Header          rt_hdr;
-Data            rt_data;
-uchar           rt_buf[DATA_SIZE];
-int             rt_counter = 0;
+static int     rt_present = 0;
+static int     rt_counter = 0;
+static Data    rt_data;
+static uchar   rt_buf[DATA_SIZE];
+static Header  rt_hdr;
 
-int             tcp_packet_counter = 0;
-int             tcp_flow_type = 0;
-int             DROP_FLOW_DIRECTION = -1;
-int             DROP_PACKET_COUNTER = -1;
+static int     tcp_packet_counter = 0;
+static int     tcp_flow_type = 0;
+static int     DROP_FLOW_DIRECTION = -1;
+static int     DROP_PACKET_COUNTER = -1;
 
 /* Low level interface wrapper */
 int
@@ -84,7 +68,7 @@ recv_tcp_packet(ipaddr_t* src, u16_t* src_port, u16_t* dst_port,
 }
 
 /* Low level send and receive functions */
-int
+static int
 _send_tcp_packet(Header* hdr, Data* dat)
 {
 	uchar* tmp;
@@ -133,7 +117,7 @@ _send_tcp_packet(Header* hdr, Data* dat)
 	return dat->len;
 }
 
-int
+static int
 _recv_tcp_packet(Header* hdr, Data* dat)
 {
     char*       data;
@@ -510,7 +494,7 @@ tcp_close(void)
 
 
 /* signal handler for SIG_ALARM, which will deal with retransmissions */
-void
+static void
 alarm_signal_handler(int sig)
 {
 	TCPCtl* cc;
@@ -554,7 +538,7 @@ alarm_signal_handler(int sig)
 /* Private functions */
 
 /* Checks if you can read from socket or not */
-int
+static int
 can_read(int state)
 {
 	switch (state) {
@@ -568,7 +552,7 @@ can_read(int state)
 }
 
 /* Checks if you can write into socket or not */
-int
+static int
 can_write(int state)
 {
 	switch (state) {
@@ -584,7 +568,7 @@ can_write(int state)
  * create a tcp packet out of given data and send it also, handle
  * retransmission till you get correct ACK
  */
-int
+static int
 write_packet(char* buf, int len, int flags)
 {
 	TCPCtl* cc;
@@ -666,8 +650,7 @@ write_packet(char* buf, int len, int flags)
 	return bytes_sent;
 }
 
-
-int
+static int
 is_valid_ack(u32_t local_seqno, u32_t remote_ackno)
 {
     TCPCtl* cc;
@@ -708,7 +691,7 @@ is_valid_ack(u32_t local_seqno, u32_t remote_ackno)
 	return 0;
 }
 
-int
+static int
 wait_for_ack(u32_t local_seqno)
 {
 	TCPCtl* cc;
@@ -758,7 +741,7 @@ wait_for_ack(u32_t local_seqno)
 	return 1;
 }
 
-int 
+static int 
 setup_packet(Header* hdr)
 {
 	TCPCtl* cc;
@@ -785,7 +768,7 @@ setup_packet(Header* hdr)
 }
 
 /* A function which will release all resources alloted to socket */
-int
+static int
 socket_close(void)
 {
 	TCPCtl* cc;
@@ -816,7 +799,7 @@ socket_close(void)
  * waits for one incomming packet put the data in incoming buffer and update
  * the ack, remote seq no.
  */
-int
+static int
 handle_packets()
 {
     TCPCtl*     cc;
@@ -890,7 +873,7 @@ handle_packets()
 /*
  * handle_Listen_state : should expect syn packet should send syn+ack packet
  */
-int 
+static int 
 handle_Listen_state(Header* hdr, Data* dat)
 {
 	TCPCtl* cc;
@@ -927,7 +910,7 @@ handle_Listen_state(Header* hdr, Data* dat)
  * handle_Syn_Sent_state : will be called from connect should expect syn+ack
  * packet and should send ack packet
  */
-int 
+static int 
 handle_Syn_Sent_state(Header* hdr, Data* dat)
 {
     TCPCtl* cc;
@@ -985,8 +968,7 @@ handle_Syn_Sent_state(Header* hdr, Data* dat)
 	return 1;
 }
 
-
-int 
+static int 
 handle_Syn_Recv_state(Header* hdr, Data* dat)
 {
     TCPCtl* cc;
@@ -1055,7 +1037,7 @@ handle_Syn_Recv_state(Header* hdr, Data* dat)
  * handle_Established_state : you can receive following packets 1. data
  * packets 2. ack packets 3. fin packets
  */
-int 
+static int 
 handle_Established_state(Header * hdr, Data * dat)
 {
 	TCPCtl* cc;
@@ -1140,9 +1122,8 @@ handle_Established_state(Header * hdr, Data * dat)
 	return 1;
 }
 
-
 /* Support functions */
-int 
+static int 
 send_ack(int flags)
 {
     TCPCtl* cc;
@@ -1179,10 +1160,113 @@ send_ack(int flags)
 	return 1;
 }
 
-
 /* for debugging support */
-int 
+static int 
 noprint(char *fmt,...)
 {
 	return 0;
+}
+
+/* Utility functions */
+
+/* This function simply calculates the checksum over a raw buffer */
+static u16_t
+raw_checksum(uchar* buf, int buflen)
+{
+    u32_t sum=0;
+    u16_t u16_end=0;
+    u16_t *u16_buf = (u16_t *)buf;
+    int u16_buflen = buflen >> 1;
+
+    if (buflen % 2) {
+        *((u8_t *)&u16_end) = ((u8_t *)buf)[buflen-1];
+        sum += u16_end;
+    }
+
+    while (u16_buflen--) {
+        sum += u16_buf[u16_buflen];
+        if (sum >= 0x00010000)
+            sum -= 0x0000ffff;
+    }
+
+    return (u16_t)~sum;
+}
+
+/* Swaps endianess on a Header structure */
+static void
+swap_header(Header* hdr, int ntoh)
+{
+    if (ntoh) {
+        hdr->sport = ntohs(hdr->sport);
+        hdr->dport = ntohs(hdr->dport);
+        hdr->seqno = ntohl(hdr->seqno);
+        hdr->ackno = ntohl(hdr->ackno);
+        hdr->flags = ntohs(hdr->flags);
+        hdr->window = ntohs(hdr->window);
+        hdr->chksum = ntohs(hdr->chksum);
+        hdr->urgent = ntohs(hdr->urgent);
+    } else {
+        hdr->sport = htons(hdr->sport);
+        hdr->dport = htons(hdr->dport);
+        hdr->seqno = htonl(hdr->seqno);
+        hdr->ackno = htonl(hdr->ackno);
+        hdr->flags = htons(hdr->flags);
+        hdr->window = htons(hdr->window);
+        hdr->chksum = htons(hdr->chksum);
+        hdr->urgent = htons(hdr->urgent);
+    }
+}
+
+/* shows compact TCP packet */
+static void
+show_packet(Header* hdr, uchar* buf, int len )
+{
+	int i ;
+	ddprint ("HDR{");
+    ddprint("[%s:%d --> %s:%d] ", inet_ntoa(hdr->src), hdr->sport,
+            inet_ntoa(hdr->dst), hdr->dport) ;
+	ddprint ("[S%d:A%d] [W:%d] [", hdr->seqno, hdr->ackno,hdr->window );
+	if (hdr->flags & SYN) ddprint( "S");
+	if (hdr->flags & ACK ) ddprint( "A");
+	if (hdr->flags & FIN ) ddprint( "F");
+	if (hdr->flags & RST) ddprint( "R");
+	ddprint("]}  DATA{%d[", len);
+	for (i = 0 ; i < len && i < 10 ; ++i ) ddprint ( "%c", buf[i] );
+	ddprint ("]} %s\n", state_names[Head->this->state]);
+}
+
+/* Prints a TCP Header */
+static void
+dump_header(Header* hdr)
+{
+    ddprint("Header Dump\n");
+    ddprint("-----------\n");
+    ddprint("SRC: %s, %0X\n", inet_ntoa(hdr->src), hdr->src);
+    ddprint("DST: %s, %0X \n", inet_ntoa(hdr->dst), hdr->dst);
+    ddprint("PRT: %d, %0X \n", hdr->prot, hdr->prot);
+    ddprint("LEN: %d, %0X \n", hdr->tlen, hdr->tlen);
+    ddprint("SPT: %d, %0X \n", hdr->sport, hdr->sport);
+    ddprint("DPT: %d, %0X \n", hdr->dport, hdr->dport);
+    ddprint("SEQ: %d, %0X \n", hdr->seqno, hdr->seqno);
+    ddprint("ACK: %d, %0X \n", hdr->ackno, hdr->ackno);
+    ddprint("FLG: %X \n", hdr->flags);
+    ddprint("WIN: %X %d\n", hdr->window, hdr->window);
+    ddprint("CHK: %X \n", hdr->chksum);
+    ddprint("URG: %X \n", hdr->urgent);
+    ddprint("-----------\n");
+}
+
+/* Prints a buffer and its ASCII values */
+static void
+dump_buffer(uchar* buf, int len)
+{
+    int i;
+    ddprint("Buffer Dump, length: %d\n", len);
+    ddprint("-----------------------\n");
+    for (i = 0; i < (len / 4); i++) {
+        ddprint("%0X %0X %0X %0X", buf[i*4] & 0xff, buf[i*4+1] & 0xff, buf[i*4+2] & 0xff, buf[i*4+3] & 0xff);
+        ddprint("\n");
+        ddprint("%c %c %c %c", buf[i*4], buf[i*4+1], buf[i*4+2], buf[i*4+3]);
+        ddprint("\n\n");
+    }
 }
