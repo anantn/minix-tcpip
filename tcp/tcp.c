@@ -287,7 +287,7 @@ tcp_connect (ipaddr_t dst, int port )
 	/* setting up status variables for this connection */
 	cc->type = TCP_CONNECT ;
 	tcp_flow_type = TCP_CONNECT ;
-	cc->local_seqno = 100 ; /* FIXME : better way to set initial seq-no ..??? */
+	cc->local_seqno += 100 ; /* FIXME : better way to set initial seq-no ..??? */
 	Head->dport = port ;
 	Head->dst = dst ;
 	Head->sport = 6000 ; /* FIXME : better way to assign local port */
@@ -318,7 +318,7 @@ tcp_listen (int port, ipaddr_t *src)
 	cc->type = TCP_LISTEN ;
 	tcp_flow_type = TCP_LISTEN ;
 	cc->state = Listen ; 
-	cc->local_seqno = 800 ; /* FIXME : better way to set initial seq-no ..??? */
+	cc->local_seqno += 400 ; /* FIXME : better way to set initial seq-no ..??? */
 	Head->sport = port ; 
 
 	do
@@ -352,7 +352,7 @@ tcp_read (char *buf, int maxlen )
 		/* if yes, then return EOF */
 		if ( can_read (cc->state) ==  0 )
 		{
-			dprint("tcp_write:Error: State is %d, can-not write data\n",cc->state);
+			dprint("tcp_read:Error: State is %d, can-not read data\n",cc->state);
 			return EOF; 	
 		}
 		dprint ("tcp_read: no data in read buffer, calling handle packets\n");	
@@ -483,6 +483,11 @@ tcp_close (void)
 					/* FIXME : should call socket_close() here */
 					break ;
 
+		case Closed :
+					dprint ("tcp_close: already in closed state\n");
+					cc->state = Closed ;
+					/* FIXME : should call socket_close() here */
+					break ;
 
 		default :
 					dprint ("tcp_close: error : odd state %d\n", cc->state );
@@ -588,7 +593,7 @@ write_packet (char * buf, int len, int flags )
 	/* setup packet*/
 	setup_packet (&hdr);
 	/* updating local sequence number.*/
-	cc->local_seqno = cc->local_seqno + len ; /* FIXME : handle overflowing 	*/
+	cc->local_seqno = cc->local_seqno + len ; 
 	ack_to_wait = cc->local_seqno ;
 
 	/* handle syn packets */
@@ -599,7 +604,7 @@ write_packet (char * buf, int len, int flags )
 		hdr.flags = (HEADER_SIZE / WORD_SIZE) << DATA_SHIFT;   
 		hdr.flags = hdr.flags | SYN ; /* setup default flags */
 		/* SYN is single bit data, so incrementing ack to wait by one */
-		ack_to_wait  = cc->local_seqno + 1 ;  /* FIXME : handle overflowing 	*/
+		ack_to_wait  = cc->local_seqno + 1 ;  
 	}
 
 	if (flags & FIN )
@@ -612,8 +617,8 @@ write_packet (char * buf, int len, int flags )
 		{
 			/* after sending FIN packet, should i increment seq no by one ?? 
 			 * the RFC example says yes, but test written in CNP does not seems to agree with it.*/
-/*			cc->local_seqno = cc->local_seqno + 1 ;*/ /*FIXME : handle overflowing*/
-			ack_to_wait  = cc->local_seqno + 1  ;  /* FIXME : handle overflowing 	*/
+/*			cc->local_seqno = cc->local_seqno + 1 ;*/
+			ack_to_wait  = cc->local_seqno + 1  ;  
 		}
 		switch ( cc->state )
 		{
@@ -650,17 +655,47 @@ write_packet (char * buf, int len, int flags )
 } /* end function : write_packet*/
 
 int
-is_valid_seq(u32_t local_seqno, u32_t remote_ackno)
+is_valid_ack(u32_t local_seqno, u32_t remote_ackno)
 {
-	if (local_seqno > remote_ackno) {
-		return true;
-	} else {
-		if ((local_seqno > 0) && (localseqno < DATA_SIZE)
-				&& (remote_ackno > (65536 - DATA_SIZE))) {
-			return true;
-		}
+	int diff;
+	TCPCtl * cc ; /* current_connection*/
+	cc = Head->this ;
+
+
+	if (cc->state == Syn_Sent && remote_ackno == 0 )
+	{
+		return 0 ;
 	}
-	return false;
+	if (cc->state == Syn_Recv && remote_ackno == 0 )
+	{
+		return 0 ;
+	}
+	diff = remote_ackno - local_seqno;
+
+	dprint ("is_valid_ack: [diff(%d) = remote_ack(%u) - local_seq(%u)] , actual_local_seq(%u)\n", diff, remote_ackno, local_seqno, cc->local_seqno );
+	if (diff == 0) {
+		/* Default case, what we were expecting */
+		return 1; 
+		dprint ( "is_valid_ack : case 1 : diff = 0 \n");
+	}
+   	if ((diff > 0) && (local_seqno + diff <= cc->local_seqno)) {
+		/* Some ACKs in between were dropped */
+		dprint ( "is_valid_ack : case 2 : diff > 0 \n");
+		return 1;
+	} 
+	if ((diff < 0) && (cc->local_seqno < local_seqno)) {
+		if (local_seqno - cc->local_seqno == 1 )
+		{
+			dprint ( "is_valid_ack : SYN or FIN packet case\n");
+			return 0 ;
+		}
+		dprint ( "is_valid_ack : case 3 : diff < 0, wrap \n");
+		/* Wrap around */
+		return 1;
+	}
+	dprint ( "is_valid_ack : invalid ack \n");
+
+	return 0;
 }
 
 int
@@ -671,7 +706,7 @@ wait_for_ack(u32_t local_seqno)
 
 	alarm (RETRANSMISSION_TIMER);
 
-	while (is_valid_seq(local_seqno, cc->remote_ackno)) /*FIXME :need to worry about overflowing in comparision */
+	while (!is_valid_ack(local_seqno, cc->remote_ackno)) 
 	{
 		dprint ("wait_for_ack: calling handle_packets\n");
 		handle_packets () ;
@@ -701,12 +736,9 @@ wait_for_ack(u32_t local_seqno)
 
 	/*FIXME: few assumptions 
 	 * Whenever we will get correct ACK, we will assume that last packet
-	 * which is present in cc->unack_header is acked, so delete it.
+	 * which is present in list of unack packet is acked, so delete it.
 	 * and cancel the alarm which was set.
 	 * */
-	/* may be i should get a lock before i modify these thing,
-	 * that will assure the correctness better 
-	 * locking can be implemented by masking the signal temporarily */
 
 
 	/* clearing the unacked packet */
@@ -742,7 +774,6 @@ int setup_packet (Header *hdr )
 /*	dprint ( "window size = %d - %d", DATA_SIZE, cc->in_buffer->len);
 	dprint ( " = %d\n", hdr->window );*/
 	hdr->urgent = 1 ;
-	/* setup flags ; FIXME : need to fix this part*/
 	hdr->flags = 0 ; /* clearing flags first*/
 	hdr->flags = (HEADER_SIZE / WORD_SIZE) << DATA_SHIFT;   
 	hdr->flags = hdr->flags | URG | ACK | PSH ; /* setup default flags*/
@@ -896,7 +927,7 @@ int handle_Listen_state (Header *hdr, Data *dat)
 	/* Get information about other side*/
 	Head->dst = hdr->src ; 	
 	Head->dport = hdr->sport ;
-	cc->remote_seqno = hdr->seqno + 1; /*FIXME :need to worry about overflowing*/
+	cc->remote_seqno = hdr->seqno + 1; 
 	cc->remote_window = hdr->window ; /* updating remote window size*/
 	cc->state = Syn_Recv ; 
 	dprint ("handle_Listen_state: Got Syn, sending SYN+ACK\n");
@@ -932,7 +963,7 @@ int handle_Syn_Sent_state  (Header *hdr, Data *dat)
 	if (flags & ACK )
 	{
 		/* check if ackno received is correct or not*/
-		if(cc->local_seqno+1 != hdr->ackno)/*FIXME :need to worry about overflowing*/
+		if(cc->local_seqno+1 != hdr->ackno)
 		{
 			/* got wrong ack-no... so, ignoring the packet*/
 		dprint ("handle_Syn_Sent_state: got SYN + ACK packet, bt wrong seq no, ignoring it\n");
@@ -943,7 +974,7 @@ int handle_Syn_Sent_state  (Header *hdr, Data *dat)
 		/* got correct ackno... so, updating variables*/
 		cc->remote_ackno = hdr->ackno ;
 		cc->local_seqno = hdr->ackno ;
-		cc->remote_seqno = hdr->seqno + 1; /*FIXME :need to worry about overflowing*/
+		cc->remote_seqno = hdr->seqno + 1; 
 		cc->remote_window = hdr->window ; /* updating remote window size**/
 		/* need to send ack for this*/
 		cc->state = Established ; 
@@ -954,7 +985,7 @@ int handle_Syn_Sent_state  (Header *hdr, Data *dat)
 	 it's a case of simultaneous OPEN*/
 	dprint ("handle_Syn_Sent_state: got just SYN, parallel open sending SYN+ACK\n");
 	cc->state = Syn_Recv ; 
-	cc->remote_seqno = hdr->seqno + 1; /*FIXME :need to worry about overflowing*/
+	cc->remote_seqno = hdr->seqno + 1; 
 	cc->remote_window = hdr->window ; /* updating remote window size*/
 	send_ack (0);
 	
@@ -985,7 +1016,7 @@ int handle_Syn_Recv_state (Header *hdr, Data *dat)
 
 
 	/* got ACK, check if it is corrct ACK*/
-	if(cc->local_seqno+1 != hdr->ackno)/*FIXME :need to worry about overflowing*/
+	if(cc->local_seqno+1 != hdr->ackno)
 	{
 		/* got wrong ack-no... so, ignoring the packet*/
 	dprint ("handle_Syn_Recv_state: got ACK, bt with wrong ACK no, ignoring packet\n");
@@ -995,23 +1026,25 @@ int handle_Syn_Recv_state (Header *hdr, Data *dat)
 	/* ok, got ACK for my SYN, so moving to Established state*/
 	cc->remote_ackno = hdr->ackno ;
 	cc->local_seqno = hdr->ackno ;
-	cc->remote_seqno = hdr->seqno + dat->len; /*FIXME :need to worry about overflowing*/
+	cc->remote_seqno = hdr->seqno + dat->len; 
 	cc->remote_window = hdr->window ; /* updating remote window size*/
 	/* need to send ack for this*/
 	cc->state = Established ; 
 	dprint ("handle_Syn_Recv_state: got ACK, going to Established state\n");
-	/*FIXME: this packet can contain data, so handle dat also */
 	/* check if u have enough space in incoming buffer*/
-	if (( dat->len > 0) || (cc->in_buffer->len + dat->len <= DATA_SIZE ) )
+	if ( dat->len > 0) 
 	{
-	dprint ("handle_Syn_Recv_state: got data also in ACK packet\n");
-		/* there is data in this packet, and also there is space in buffer
-		 * so, put this data in buffer */
-		dprint("Length: %d\n", dat->len);
-		memcpy(cc->in_buffer->content, dat->content, dat->len);	
-		cc->in_buffer->len += dat->len;
+		dprint ("handle_Syn_Recv_state: got data also in ACK packet\n");
+		if (cc->in_buffer->len + dat->len <= DATA_SIZE )
+		{
+			/* there is data in this packet, and also there is space in buffer
+			 * so, put this data in buffer */
+			dprint("Length: %d\n", dat->len);
+			memcpy(cc->in_buffer->content, dat->content, dat->len);	
+			cc->in_buffer->len += dat->len;
 
-		cc->remote_seqno = hdr->seqno + dat->len ; /*FIXME :need to worry about overflowing*/
+			cc->remote_seqno = hdr->seqno + dat->len ; 
+		}
 	}
 
 	return 1;	
@@ -1052,7 +1085,7 @@ int handle_Established_state (Header *hdr, Data *dat)
 		memcpy(cc->in_buffer->content, dat->content, dat->len);	
 		cc->in_buffer->len += dat->len;
 
-		cc->remote_seqno = hdr->seqno + dat->len ; /*FIXME :need to worry about overflowing*/
+		cc->remote_seqno = hdr->seqno + dat->len ; 
 
 		/* if packet contain data or if it's fin packet,
 		 then only acknowledge it */
@@ -1069,7 +1102,7 @@ int handle_Established_state (Header *hdr, Data *dat)
 			if ( hdr->flags & FIN )
 			{
 				/* as FIN flag is 1 bit of data*/
-				/* cc->remote_seqno = hdr->seqno + 1 ; */  /*FIXME :need to worry about overflowing*/
+				/* cc->remote_seqno = hdr->seqno + 1 ; */  
 				cc->remote_seqno = hdr->seqno ; 
 				dprint("ACKing the FIN packet with ACK no %u\n",cc->remote_seqno+1);
 				send_ack (FIN);
@@ -1129,7 +1162,6 @@ int send_ack (int flags)
 		/* need to send SYN+ACK*/
 		
 		dprint("send_ack: sending SYN+ACK\n");
-		/* setup flags ; FIXME : need to fix this part*/
 		hdr.flags = 0 ; /* clearing flags first*/
 		hdr.flags = (HEADER_SIZE / WORD_SIZE) << DATA_SHIFT; 
 		hdr.flags = hdr.flags | SYN | ACK ; /* setup default flags*/
