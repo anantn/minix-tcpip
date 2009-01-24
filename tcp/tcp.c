@@ -1,16 +1,61 @@
 #include "tcp.h"
 
-/* static allocation for retransmission buffer */
-static int     rt_present = 0;
-static int     rt_counter = 0;
-static Data    rt_data;
-static uchar   rt_buf[DATA_SIZE];
-static Header  rt_hdr;
+static int _recv_tcp_packet(Header* hdr, Data* dat);
+static int _send_tcp_packet(Header* hdr, Data* dat);
 
-static int     tcp_packet_counter = 0;
-static int     tcp_flow_type = 0;
-static int     DROP_FLOW_DIRECTION = -1;
-static int     DROP_PACKET_COUNTER = -1;
+/* util functions */
+static u16_t raw_checksum(uchar* dat, int len);
+static void dump_header(Header* hdr);
+static void dump_buffer(uchar* dat, int len);
+static void swap_header(Header* hdr, int ntoh);
+static void show_packet(Header * hdr, uchar * buf, int len );
+
+/* more support functions*/
+static int can_read(int state);
+static int can_write(int state);
+static int handle_packets(void);
+static int send_ack(int flags) ;
+static int setup_packet(Header *hdr );
+static int wait_for_ack(u32_t local_seqno);
+static int write_packet(char * buf, int len, int flags );
+
+/* state handling functions*/
+static int handle_Listen_state(Header *hdr, Data *dat);
+static int handle_Syn_Sent_state(Header *hdr, Data *dat);
+static int handle_Syn_Recv_state(Header *hdr, Data *dat);
+static int handle_Established_state(Header *hdr, Data *dat);
+
+/* signal handling function */
+static void alarm_signal_handler(int sig) ;
+
+/* for debugging support */
+static int noprint (char *fmt, ...) ;
+
+/* global state (single connection for now) */
+static TCPMux* Head;
+static char state_names[][12] = {
+	"Closed",
+	"Listen",
+	"Syn_Sent",
+	"Syn_Recv",
+	"Established",
+	"Fin_Wait1",
+	"Fin_Wait2",
+	"Close_Wait",
+	"Closing",
+	"Last_Ack",
+	"Time_Wait"
+};
+
+/* static allocation for retransmission buffer */
+static int      rt_present = 0;
+static int      rt_counter = 0;
+static Data     rt_data;
+static uchar    rt_buf[DATA_SIZE];
+static Header   rt_hdr;
+
+static int      tcp_packet_counter = 0;
+static int      tcp_flow_type = 0;
 
 /* Low level interface wrapper */
 int
@@ -666,9 +711,7 @@ is_valid_ack(u32_t local_seqno, u32_t remote_ackno)
 	}
 
 	diff = remote_ackno - local_seqno;
-	dprint("is_valid_ack: [diff(%d) = remote_ack(%u) - local_seq(%u)],
-            actual_local_seq(%u)\n", diff, remote_ackno, local_seqno,
-            cc->local_seqno);
+	dprint("is_valid_ack: [diff(%d) = remote_ack(%u) - local_seq(%u)], actual_local_seq(%u)\n", diff, remote_ackno, local_seqno, cc->local_seqno);
 
 	if (diff == 0) {
 		/* Default case, what we were expecting */
@@ -735,8 +778,7 @@ wait_for_ack(u32_t local_seqno)
 
 	/* cancel the signal SIGALARM */
 	alarm(0);
-	dprint("wait_for_ack: got gud ack %u, for expected ack %u, canceling
-            alarm\n", cc->remote_ackno, local_seqno);
+	dprint("wait_for_ack: got gud ack %u, for expected ack %u, canceling alarm\n", cc->remote_ackno, local_seqno);
 
 	return 1;
 }
@@ -824,8 +866,7 @@ handle_packets()
 	} while (len < 0);
 
 	if (hdr.dport != Head->sport) {
-		dprint("### handle_packets: received packet for wrong port %u, when
-                expecting %u\n", hdr.dport, Head->sport);
+		dprint("### handle_packets: received packet for wrong port %u, when expecting %u\n", hdr.dport, Head->sport);
 		return -1;
 	}
 	
@@ -936,12 +977,10 @@ handle_Syn_Sent_state(Header* hdr, Data* dat)
 		/* check if ackno received is correct or not */
 		if (cc->local_seqno + 1 != hdr->ackno) {
 			/* got wrong ack-no... so, ignoring the packet */
-			dprint("handle_Syn_Sent_state: got SYN + ACK packet, but wrong seq
-                    no, ignoring it\n");
+			dprint("handle_Syn_Sent_state: got SYN + ACK packet, but wrong seq no, ignoring it\n");
 			return -1;
 		}
-		dprint("handle_Syn_Sent_state: got SYN + ACK packet, Acking the
-                SYN\n");
+		dprint("handle_Syn_Sent_state: got SYN + ACK packet, Acking the SYN\n");
 
 		/* got correct ackno... so, updating variables */
 		cc->remote_ackno = hdr->ackno;
@@ -958,8 +997,7 @@ handle_Syn_Sent_state(Header* hdr, Data* dat)
 	/*
 	 * got just SYN packet it's a case of simultaneous OPEN
 	 */
-	dprint("handle_Syn_Sent_state: got just SYN, parallel open sending
-            SYN+ACK\n");
+	dprint("handle_Syn_Sent_state: got just SYN, parallel open sending SYN+ACK\n");
 	cc->state = Syn_Recv;
 	cc->remote_seqno = hdr->seqno + 1;
 	cc->remote_window = hdr->window;
@@ -1000,8 +1038,7 @@ handle_Syn_Recv_state(Header* hdr, Data* dat)
 	/* got ACK, check if it is corrct ACK */
 	if (cc->local_seqno + 1 != hdr->ackno) {
 		/* got wrong ack-no... so, ignoring the packet */
-		dprint("handle_Syn_Recv_state: got ACK, bt with wrong ACK no,
-		        ignoring packet\n");
+		dprint("handle_Syn_Recv_state: got ACK, bt with wrong ACK no, ignoring packet\n");
 		return -1;
 	}
 	
@@ -1049,8 +1086,7 @@ handle_Established_state(Header * hdr, Data * dat)
 	 */
 	/* check if it is correct packet */
 	if (cc->remote_seqno != hdr->seqno) {
-		dprint("00000 handle_Established_state: Received unexpected packet,
-                expected %u, recived %u, ACKing with old ACK number\n",
+		dprint("00000 handle_Established_state: Received unexpected packet, expected %u, recived %u, ACKing with old ACK number\n",
                 cc->remote_seqno, hdr->seqno);
 		/*
 		 * sending ack, just to tell other side dat something is
@@ -1078,8 +1114,7 @@ handle_Established_state(Header * hdr, Data * dat)
 		 */
 		if (dat->len != 0) {
 			if (hdr->flags & FIN) {
-				dprint("ACKing the FIN packet (packet had data %d) with ACK no
-                        %u\n", dat->len, cc->remote_seqno);
+				dprint("ACKing the FIN packet (packet had data %d) with ACK no %u\n", dat->len, cc->remote_seqno);
 			}
 			send_ack(0);
 		} else {
@@ -1102,8 +1137,7 @@ handle_Established_state(Header * hdr, Data * dat)
 					cc->state = Time_Wait;
 					break;
 				default:
-					dprint("handle_Established_state: some state issue,
-                            unexpeced FIN flag received in state %d\n",
+					dprint("handle_Established_state: some state issue, unexpeced FIN flag received in state %d\n",
                             cc->state);
 				}
 
@@ -1235,38 +1269,3 @@ show_packet(Header* hdr, uchar* buf, int len )
 	ddprint ("]} %s\n", state_names[Head->this->state]);
 }
 
-/* Prints a TCP Header */
-static void
-dump_header(Header* hdr)
-{
-    ddprint("Header Dump\n");
-    ddprint("-----------\n");
-    ddprint("SRC: %s, %0X\n", inet_ntoa(hdr->src), hdr->src);
-    ddprint("DST: %s, %0X \n", inet_ntoa(hdr->dst), hdr->dst);
-    ddprint("PRT: %d, %0X \n", hdr->prot, hdr->prot);
-    ddprint("LEN: %d, %0X \n", hdr->tlen, hdr->tlen);
-    ddprint("SPT: %d, %0X \n", hdr->sport, hdr->sport);
-    ddprint("DPT: %d, %0X \n", hdr->dport, hdr->dport);
-    ddprint("SEQ: %d, %0X \n", hdr->seqno, hdr->seqno);
-    ddprint("ACK: %d, %0X \n", hdr->ackno, hdr->ackno);
-    ddprint("FLG: %X \n", hdr->flags);
-    ddprint("WIN: %X %d\n", hdr->window, hdr->window);
-    ddprint("CHK: %X \n", hdr->chksum);
-    ddprint("URG: %X \n", hdr->urgent);
-    ddprint("-----------\n");
-}
-
-/* Prints a buffer and its ASCII values */
-static void
-dump_buffer(uchar* buf, int len)
-{
-    int i;
-    ddprint("Buffer Dump, length: %d\n", len);
-    ddprint("-----------------------\n");
-    for (i = 0; i < (len / 4); i++) {
-        ddprint("%0X %0X %0X %0X", buf[i*4] & 0xff, buf[i*4+1] & 0xff, buf[i*4+2] & 0xff, buf[i*4+3] & 0xff);
-        ddprint("\n");
-        ddprint("%c %c %c %c", buf[i*4], buf[i*4+1], buf[i*4+2], buf[i*4+3]);
-        ddprint("\n\n");
-    }
-}

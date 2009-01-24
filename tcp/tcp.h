@@ -37,13 +37,13 @@
 #define DATA_SHIFT  12
 #define WORD_SIZE   4
 #define RETRANSMISSION_TIMER 1
+#define DROP_FLOW_DIRECTION -1
+#define DROP_PACKET_COUNTER -1
 
 #define MIN(a,b) (a) < (b) ? (a) : (b) 
 typedef unsigned char uchar;
 typedef unsigned short ushort;
 
-extern int DROP_FLOW_DIRECTION ;
-extern int DROP_PACKET_COUNTER ;
 enum {
     URG = 0x20,
     ACK = 0x10,
@@ -115,22 +115,6 @@ typedef struct _TCPMux {
     TCPCtl* next;
 } TCPMux;
 
-/* global state (single connection for now) */
-extern static TCPMux* Head;
-extern static char state_names[][12] = {
-	"Closed",
-	"Listen",
-	"Syn_Sent",
-	"Syn_Recv",
-	"Established",
-	"Fin_Wait1",
-	"Fin_Wait2",
-	"Close_Wait",
-	"Closing",
-	"Last_Ack",
-	"Time_Wait"
-};
-
 /* public interface */
 int tcp_socket(void);
 int tcp_connect(ipaddr_t dst, int port);
@@ -149,38 +133,4 @@ recv_tcp_packet(ipaddr_t* src, u16_t* src_port, u16_t* dst_port,
 	u32_t* seq_nb, u32_t* ack_nb, u8_t* flags, u16_t* win_sz,
 	char* data, int* data_sz);
 
-static int _recv_tcp_packet(Header* hdr, Data* dat);
-static int _send_tcp_packet(Header* hdr, Data* dat);
-
-/* util functions */
-static u16_t raw_checksum(uchar* dat, int len);
-static void tcp_checksum(Header* hdr, Data* dat, int con);
-static void dump_header(Header* hdr);
-static void dump_buffer(uchar* dat, int len);
-static void swap_header(Header* hdr, int ntoh);
-static void show_packet(Header * hdr, uchar * buf, int len );
-
-/* more support functions*/
-static int can_read(int state);
-static int can_write(int state);
-static int handle_packets(void);
-static int send_ack(int flags) ;
-static int setup_packet(Header *hdr );
-static int wait_for_ack(u32_t local_seqno);
-static int write_packet(char * buf, int len, int flags );
-
-/* state handling functions*/
-static int handle_Closed_state(Header *hdr, Data *dat);
-static int handle_Listen_state(Header *hdr, Data *dat);
-static int handle_Syn_Sent_state(Header *hdr, Data *dat);
-static int handle_Syn_Recv_state(Header *hdr, Data *dat);
-static int handle_Established_state(Header *hdr, Data *dat);
-
-/* signal handling function */
-static void alarm_signal_handler(int sig) ;
-
-/* for debugging support */
-static int noprint (char *fmt, ...) ;
-
 #endif
-

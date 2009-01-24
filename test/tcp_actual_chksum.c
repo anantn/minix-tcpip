@@ -71,7 +71,7 @@ main(int argc, char** argv)
     memcpy(buf->content, hdr, HEADER_OFF);
     memcpy(buf->content + HEADER_OFF, pkt, sizeof(pkt));
     
-    if (raw_checksum(buf->content, buf->len) == 0x00) {
+    if (inet_checksum(buf->content, buf->len) == 0x00) {
         printf("PASS\n");
     } else {
         printf("FAIL\n");

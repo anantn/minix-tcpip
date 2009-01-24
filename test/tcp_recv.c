@@ -2,20 +2,16 @@
 
 int
 main(int argc, char** argv) {
-    int len;
-    Data* dat = (Data*)calloc(1, sizeof(Data));
-    Header* hdr = (Header*)calloc(1, sizeof(Header));
-
+    char* dat;
+    u8_t flags;
+    ipaddr_t src;
+    int len, data_sz;
+    u32_t seq_nb, ack_nb;
+    u16_t src_port, dst_port, win_sz;
+    
     tcp_socket();
-    len = _recv_tcp_packet(hdr, dat);
-    
-    printf("Received %d bytes! Dumping header & content:\n", len);
-    dump_header(hdr);
-    dump_buffer(dat->content, dat->len);
-    
-    free(dat->content);
-    free(dat);
-    free(hdr);
+    len = recv_tcp_packet(&src, &src_port, &dst_port, &seq_nb,
+                            &ack_nb, &flags, &win_sz, dat, &data_sz);
 
     return 1;
 }
