@@ -5,8 +5,6 @@ static int _send_tcp_packet(Header* hdr, Data* dat);
 
 /* util functions */
 static u16_t raw_checksum(uchar* dat, int len);
-static void dump_header(Header* hdr);
-static void dump_buffer(uchar* dat, int len);
 static void swap_header(Header* hdr, int ntoh);
 static void show_packet(Header * hdr, uchar * buf, int len );
 
