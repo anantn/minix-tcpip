@@ -1,8 +1,5 @@
 #include "tcp.h"
 
-static int _recv_tcp_packet(Header* hdr, Data* dat);
-static int _send_tcp_packet(Header* hdr, Data* dat);
-
 /* util functions */
 static u16_t raw_checksum(uchar* dat, int len);
 static void swap_header(Header* hdr, int ntoh);
@@ -24,7 +21,7 @@ static int handle_Syn_Recv_state(Header* hdr, Data* dat);
 static int handle_Established_state(Header* hdr, Data* dat);
 
 /* signal handling function */
-static void alarm_signal_handler(int sig) ;
+static void alarm_signal_handler(int sig);
 
 /* noprint() */
 static int noprint(const char* format, ...) { return 1; }
@@ -54,61 +51,6 @@ static Header   rt_hdr;
 
 static int      tcp_packet_counter = 0;
 static int      tcp_flow_type = 0;
-
-/* Low level interface wrapper */
-int
-send_tcp_packet(ipaddr_t dst, u16_t src_port, u16_t dst_port,
-		u32_t seq_nb, u32_t ack_nb, u8_t flags, u16_t win_sz,
-		const char* data, int data_sz)
-{
-	int ret;
-
-	Header* hdr = (Header*) calloc(1, sizeof(Header));
-	Data* dat = (Data*) calloc(1, sizeof(Data));
-	dat->len = data_sz;
-	dat->content = (uchar*) data;
-
-	hdr->dst = dst;
-	hdr->sport = src_port;
-	hdr->dport = dst_port;
-	hdr->seqno = seq_nb;
-	hdr->ackno = ack_nb;
-	hdr->flags = (HEADER_SIZE / WORD_SIZE) << DATA_SHIFT;
-	hdr->flags = hdr->flags | flags;
-	hdr->window = win_sz;
-
-	ret = _send_tcp_packet(hdr, dat);
-	free(hdr);
-	free(dat);
-
-	return ret;
-}
-
-int
-recv_tcp_packet(ipaddr_t* src, u16_t* src_port, u16_t* dst_port,
-		u32_t* seq_nb, u32_t* ack_nb, u8_t* flags, u16_t* win_sz,
-		char* data, int* data_sz)
-{
-	int ret;
-
-	Header* hdr = (Header*) calloc(1, sizeof(Header));
-	Data* dat = (Data*) calloc(1, sizeof(Data));
-
-	ret = _recv_tcp_packet(hdr, dat);
-
-	*src = hdr->src;
-	*src_port = hdr->sport;
-	*dst_port = hdr->dport;
-	*seq_nb = hdr->seqno;
-	*ack_nb = hdr->ackno;
-	*flags = (u8_t) (hdr->flags & 0xFF);
-	*win_sz = hdr->window;
-
-	data = (char*) dat->content;
-	*data_sz = dat->len;
-
-	return ret;
-}
 
 /* Low level send and receive functions */
 static int
@@ -196,6 +138,61 @@ _recv_tcp_packet(Header* hdr, Data* dat)
 	show_packet(hdr, dat->len, 0);
 
 	return dat->len;
+}
+
+/* Low level interface wrapper */
+int
+send_tcp_packet(ipaddr_t dst, u16_t src_port, u16_t dst_port,
+		u32_t seq_nb, u32_t ack_nb, u8_t flags, u16_t win_sz,
+		const char* data, int data_sz)
+{
+	int ret;
+
+	Header* hdr = (Header*) calloc(1, sizeof(Header));
+	Data* dat = (Data*) calloc(1, sizeof(Data));
+	dat->len = data_sz;
+	dat->content = (uchar*) data;
+
+	hdr->dst = dst;
+	hdr->sport = src_port;
+	hdr->dport = dst_port;
+	hdr->seqno = seq_nb;
+	hdr->ackno = ack_nb;
+	hdr->flags = (HEADER_SIZE / WORD_SIZE) << DATA_SHIFT;
+	hdr->flags = hdr->flags | flags;
+	hdr->window = win_sz;
+
+	ret = _send_tcp_packet(hdr, dat);
+	free(hdr);
+	free(dat);
+
+	return ret;
+}
+
+int
+recv_tcp_packet(ipaddr_t* src, u16_t* src_port, u16_t* dst_port,
+		u32_t* seq_nb, u32_t* ack_nb, u8_t* flags, u16_t* win_sz,
+		char* data, int* data_sz)
+{
+	int ret;
+
+	Header* hdr = (Header*) calloc(1, sizeof(Header));
+	Data* dat = (Data*) calloc(1, sizeof(Data));
+
+	ret = _recv_tcp_packet(hdr, dat);
+
+	*src = hdr->src;
+	*src_port = hdr->sport;
+	*dst_port = hdr->dport;
+	*seq_nb = hdr->seqno;
+	*ack_nb = hdr->ackno;
+	*flags = (u8_t) (hdr->flags & 0xFF);
+	*win_sz = hdr->window;
+
+	data = (char*) dat->content;
+	*data_sz = dat->len;
+
+	return ret;
 }
 
 /* TCP Interface functions */
@@ -539,7 +536,7 @@ alarm_signal_handler(int sig)
 	/*
 	 * update the ack_no and window_size as it may change
 	 */
-	dprint("alarm_signal_handler:: Re-transmitting packet: %d", rt_counter);
+	dprint("alarm_signal_handler:: Re-transmitting packet: %d\n", rt_counter);
 	rt_hdr.ackno = cc->remote_seqno;
 	rt_hdr.window = DATA_SIZE - cc->in_buffer->len;
 	bytes_sent = _send_tcp_packet(&c_hdr, &c_data);
@@ -1222,10 +1219,10 @@ show_packet(Header* hdr, int plen, int out)
 	dprint("[S%d:A%d][W:%d][", hdr->seqno, hdr->ackno, hdr->window);
 	
 	/* print flags */
-	if (hdr->flags & SYN)   dprint("S");
-	if (hdr->flags & ACK)   dprint("A");
-	if (hdr->flags & FIN)   dprint("F");
-	if (hdr->flags & RST)   dprint("R");
+	if (hdr->flags & SYN) dprint("S");
+	if (hdr->flags & ACK) dprint("A");
+	if (hdr->flags & FIN) dprint("F");
+	if (hdr->flags & RST) dprint("R");
 	
 	/* print data and state */
 	dprint("]} DATA{%d} ", plen);
