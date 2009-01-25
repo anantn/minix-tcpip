@@ -3,11 +3,55 @@
 #include <tcp.h>
 #include <dirent.h>
 #include <errno.h>
+#include <time.h>
+
+int
+my_itoa(int n, char* s)
+{
+    int i, c, j, k;
+    
+    i = 0;    
+    do {
+        s[i++] = n % 10 + '0';
+    } while ((n /= 10) > 0);
+        
+
+    for (j = 0, k = i - 1; j < k; j++, k--) {
+        c = s[j];
+        s[j] = s[k];
+        s[k] = c;
+    }
+    s[i] = '\0';
+
+    return i;
+}
+
+void
+get_mime_type(char* fPath, char* s)
+{
+    int len = strlen(fPath);
+    
+    if (strncmp("txt", fPath + len - 3, 3) == 0)
+        strcpy(s, "text/plain");
+    else if (strncmp("htm", fPath + len - 3, 3) == 0)
+        strcpy(s, "text/HTML");
+    else if (strncmp("html", fPath + len - 4, 4) == 0)
+        strcpy(s, "text/HTML");
+    else if (strncmp("gif", fPath + len - 3, 3) == 0)
+        strcpy(s, "image/gif");
+    else if (strncmp("jpg", fPath + len - 3, 3) == 0)
+        strcpy(s, "image/jpg");
+    else if (strncmp("jpeg", fPath + len - 4, 4) == 0)
+        strcpy(s, "image/jpg");
+    else
+        strcpy(s, "application/octet-stream");
+}
 
 void
 send_initial_response(int code)
-{
-    tcp_write("HTTP/1.0 ", 8);
+{   
+    time_t t;
+    tcp_write("HTTP/1.0 ", 9);
     switch (code) {
         case 404:
             tcp_write("404 Not Found\r\n", 15);
@@ -16,22 +60,26 @@ send_initial_response(int code)
             tcp_write("200 OK\r\n", 8);
             break;
     }
-    
-    /* FIXME: write date and time */
-    tcp_write("Server: CN Practical '08/09 HTTP Server (Minix 3.1)\r\n", 56);   
+
+    time(&t);
+    tcp_write("Date: ", 6);
+    tcp_write(ctime(&t), 24);
+    tcp_write("\r\n", 2);
+    tcp_write("Server: CN Practical '08/09 (Minix 3.1)\r\n", 41);   
 }
 
 void
 handle_get(char* htdocs)
 {
-    int i = 0;
-    char path[256];
-    char* ptr = path;
+    int i = 0, j;
+    char len[10];
+    char mime[24];
+    char path[256];    
     char* fPath;
     FILE* f;
-    
     unsigned char* contents;
     struct stat buf;
+    char* ptr = path;
     
     do {
         tcp_read(ptr, 1);
@@ -41,15 +89,16 @@ handle_get(char* htdocs)
     fPath = (char*)calloc(strlen(htdocs) + i, sizeof(char));
     memcpy(fPath, htdocs, strlen(htdocs));
     memcpy(fPath + strlen(htdocs), path, i - 1);
-    dprint("File path determined: %s\n", fPath);
-	dprint("Flushing read buffer... ");
+    dprint("httpd:: File path determined: %s\n", fPath);
+	dprint("httpd:: Flushing read buffer...\n");
 
 	i = 0;
 	ptr = path;
 	while (tcp_read(ptr, 1)) {
 		i++;
-        if (ptr[3] == '\r' && ptr[2] == '\n' && ptr[1] == '\r' && ptr[0] == '\n') {
-		    dprint("DONE, read %d bytes more\n", i);
+        if (ptr[3] == '\r' && ptr[2] == '\n' &&
+            ptr[1] == '\r' && ptr[0] == '\n') {
+		    dprint("httpd:: Flush DONE, read %d bytes more\n", i);
             break;
 	    }
 		ptr[3] = ptr[2];
@@ -59,13 +108,14 @@ handle_get(char* htdocs)
 
     if (stat(fPath, &buf) != 0) {
         /* Cannot access file because it does not exist? */
-		dprint("Requested file does not exist, stat returned %s :(\n", strerror(errno));
+		dprint("httpd:: Requested file does not exist, stat returned %s :(\n",
+                strerror(errno));
         send_initial_response(404);
         tcp_write("\r\n", 2);
         return;
     }
     
-    contents = (unsigned char*)calloc(buf.st_size, sizeof(unsigned char));    
+    contents = (unsigned char*) calloc(buf.st_size, sizeof(unsigned char));    
     /* FIXME: Get more information from buf, such atime and mtime */
     
     f = fopen(fPath, "r+");
@@ -73,9 +123,22 @@ handle_get(char* htdocs)
     fclose(f);
     
     /* Send response */
-	dprint("File found, sending headers and content\n");
+	dprint("httpd:: File found, sending headers and content\n");
     send_initial_response(200);
-    /* FIXME: Output other headers */
+    
+    /* Send Content-Length */
+    tcp_write("Content-Length: ", 16);
+    j = my_itoa(buf.st_size, len);
+    tcp_write(len, j);
+    tcp_write("\r\n", 2);
+    
+    /* Send MIME type */
+    tcp_write("Content-Type: ", 14);
+    get_mime_type(fPath, mime);
+    tcp_write(mime, strlen(mime));
+    tcp_write("\r\n", 2);
+    
+    /* Send contents */
     tcp_write("\r\n", 2);
     tcp_write((char*)contents, buf.st_size);
     
@@ -90,12 +153,12 @@ serve(char* htdocs)
     char method[4];
 
     if (!(con = tcp_socket())) {
-        dprint("Could not initialize tcp_socket, quitting!\n");
+        dprint("httpd:: Could not initialize tcp_socket, quitting!\n");
         return 1;
     }
     
     if (!tcp_listen(80, (ipaddr_t*)my_ipaddr)) {
-        dprint("Could not listen on port 80, quitting!\n");
+        dprint("httpd:: Could not listen on port 80, quitting!\n");
         return 1;
     }
     
@@ -108,14 +171,10 @@ serve(char* htdocs)
                 handle_get(htdocs);
                 tcp_close();
                 return 0;
-            } else {
-                dprint("Invalid HTTP method, quitting!\n");
-                tcp_close();
-                return 1;
             }
         default:
             /* Other HTTP methods not supported */
-            dprint("Method %s not supported, quitting!\n", method);
+            dprint("httpd:: Method %s not supported, quitting!\n", method);
             tcp_close();
             return 1;
     }
@@ -128,14 +187,14 @@ main(int argc, char** argv)
 
     if (argc != 2) {
         /* Invalid arguments passes */
-        dprint("Usage: httpd <directory>\n");
+        dprint("httpd:: Usage: httpd <directory>\n");
         return 1;
     }
     
     check = opendir(argv[1]);
     if (!check) {
         /* Invalid HTDOCS directory */
-        dprint("Invalid directory to serve from, quitting!\n");
+        dprint("httpd:: Invalid directory to serve from, quitting!\n");
         return 1;
     } else {
         closedir(check);
@@ -143,4 +202,3 @@ main(int argc, char** argv)
     
     return serve(argv[1]);
 }
-

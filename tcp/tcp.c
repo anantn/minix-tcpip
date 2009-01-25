@@ -1229,4 +1229,3 @@ show_packet(Header* hdr, int plen, int out)
 	dprint("%s\n", state_names[Head->this->state]);
 	noprint("");
 }
-
