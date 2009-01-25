@@ -8,17 +8,10 @@
 #include <signal.h>
 #include "ip.h"
 
-#define VERBOSE 1
-#ifdef DEBUG
- #ifdef VERBOSE  
+#ifdef DEBUG 
   #define dprint printf
- #else
-  #define dprint noprint
- #endif
- #define ddprint printf
 #else
- #define dprint noprint
- #define ddprint noprint
+  #define dprint (void)
 #endif
 
 #ifndef IP_PROTO_TCP
@@ -37,8 +30,6 @@
 #define DATA_SHIFT  12
 #define WORD_SIZE   4
 #define RETRANSMISSION_TIMER 1
-#define DROP_FLOW_DIRECTION -1
-#define DROP_PACKET_COUNTER -1
 
 #define MIN(a,b) (a) < (b) ? (a) : (b) 
 typedef unsigned char uchar;
