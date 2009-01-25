@@ -11,7 +11,7 @@
 #ifdef DEBUG 
   #define dprint printf
 #else
-  #define dprint (void)
+  #define dprint noprint
 #endif
 
 #ifndef IP_PROTO_TCP

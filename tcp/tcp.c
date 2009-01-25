@@ -6,7 +6,7 @@ static int _send_tcp_packet(Header* hdr, Data* dat);
 /* util functions */
 static u16_t raw_checksum(uchar* dat, int len);
 static void swap_header(Header* hdr, int ntoh);
-static void show_packet(Header* hdr, uchar* buf, int len );
+static void show_packet(Header* hdr, int plen, int out);
 
 /* more support functions*/
 static int can_read(int state);
@@ -25,6 +25,9 @@ static int handle_Established_state(Header* hdr, Data* dat);
 
 /* signal handling function */
 static void alarm_signal_handler(int sig) ;
+
+/* noprint() */
+static int noprint(const char* format, ...) { return 1; }
 
 /* global state (single connection for now) */
 static TCPMux* Head;
@@ -190,7 +193,7 @@ _recv_tcp_packet(Header* hdr, Data* dat)
 	 * In this case, that's handle_packets.
 	 */
 	memcpy(dat->content, (uchar*) data + doff, dat->len);
-	show_packet(hdr, dat->content, dat->len);
+	show_packet(hdr, dat->len, 0);
 
 	return dat->len;
 }
@@ -1206,7 +1209,7 @@ swap_header(Header* hdr, int ntoh)
 /* Print a TCP packet in compact form */
 static void
 show_packet(Header* hdr, int plen, int out)
-{
+{   
 	if (out)
 		dprint("_send_tcp_packet:: ");
 	else
@@ -1227,5 +1230,6 @@ show_packet(Header* hdr, int plen, int out)
 	/* print data and state */
 	dprint("]} DATA{%d} ", plen);
 	dprint("%s\n", state_names[Head->this->state]);
+	noprint("");
 }
 
