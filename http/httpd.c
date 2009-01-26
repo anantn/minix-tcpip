@@ -1,9 +1,9 @@
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <tcp.h>
 #include <dirent.h>
 #include <errno.h>
 #include <time.h>
+#include <tcp.h>
 
 int
 my_itoa(int n, char* s)
@@ -43,6 +43,8 @@ get_mime_type(char* fPath, char* s)
         strcpy(s, "image/jpg");
     else if (strncmp("jpeg", fPath + len - 4, 4) == 0)
         strcpy(s, "image/jpg");
+    else if (strncmp("ps", fPath + len - 2, 2) == 0)
+        strcpy(s, "application/postscript");
     else
         strcpy(s, "application/octet-stream");
 }
