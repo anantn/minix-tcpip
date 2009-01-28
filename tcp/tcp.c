@@ -22,6 +22,9 @@ static int handle_Established_state(Header* hdr, Data* dat);
 
 /* signal handling function */
 static void alarm_signal_handler(int sig);
+static int clear_retransmission_mechanism ( void );
+static void reset_retransmission_buffer (int set, Header *hdr, Data *dat );
+static void (*ptr_original_signal_handler)(int sig) = SIG_IGN ;
 
 /* noprint() */
 static int noprint(const char* format, ...) { return 1; }
@@ -246,22 +249,46 @@ tcp_socket(void)
 	 * Now set the signal handler, for SIGALARM, which will handle the
 	 * retransmissions
 	 */
-
-	/* initializing the retransmission buffer */
-	rt_present = 0;
-	memset(&rt_hdr, 0, sizeof(Header));
-	memset(&rt_data, 0, sizeof(Data));
-	memset(&rt_buf, 0, DATA_SIZE);
-	rt_data.content = rt_buf;
-	rt_data.len = 0;
-	rt_counter = 0;
-	if (signal(SIGALRM, alarm_signal_handler) == SIG_ERR) {
-		dprint("tcp_socket:: Can't set signal handler!\n");
-		return -1;
-	}
+	clear_retransmission_mechanism ();
 	
 	/* FIXME : checkup for failure of tcp_socket */
 	return 1;
+}
+
+static
+int clear_retransmission_mechanism ( void )
+{
+	reset_retransmission_buffer (0,NULL, NULL);	
+	return 0 ;
+}
+
+static
+void reset_retransmission_buffer (int set, Header *hdr, Data *dat )
+{
+		/* initializing the retransmission buffer */
+		rt_present = 0;
+		memset(&rt_hdr, 0, sizeof(Header));
+		memset(&rt_data, 0, sizeof(Data));
+		memset(&rt_buf, 0, DATA_SIZE);
+		rt_data.content = rt_buf;
+		rt_data.len = 0;
+		rt_counter = 0;
+
+	if (set == 1 )
+	{
+
+		memcpy (&rt_hdr, hdr, sizeof (Header));
+		memcpy(rt_data.content, dat->content, dat->len);
+		rt_data.len = dat->len;
+		rt_present = 1;
+		rt_counter = 0;
+		ptr_original_signal_handler = signal(SIGALRM, alarm_signal_handler) ;
+	   
+		if ( ptr_original_signal_handler == SIG_ERR) {
+			dprint("tcp_socket:: Can't set signal handler!\n");
+			exit(1) ;
+		}
+	}
 }
 
 /* Connection oriented part */
@@ -389,6 +416,7 @@ tcp_read(char* buf, int maxlen)
 		}
 	}
 	
+	dprint ("tcp_read : read %d bytes successfully\n", bytes_read);
 	return bytes_read;
 }
 
@@ -645,10 +673,12 @@ write_packet(char* buf, int len, int flags)
 	}
 	
 	/* Put the packet into the list of unacked packets */
-	rt_hdr = hdr;
+	reset_retransmission_buffer (1,&hdr, &dat) ;
+/*	rt_hdr = hdr;
 	memcpy(rt_data.content, dat.content, dat.len);
 	rt_data.len = dat.len;
 	rt_present = 1;
+*/
 
 	/* send the packet */
 	/* in case of retransmission, update the ack_no and window_size */
@@ -705,7 +735,9 @@ is_valid_ack(u32_t local_seqno, u32_t remote_ackno)
 static int
 wait_for_ack(u32_t local_seqno)
 {
+	int  ret ;
 	TCPCtl* cc;
+	void (*ptr_tmp)(int sig) ;
 	cc = Head->this;
 
 	alarm(RETRANSMISSION_TIMER);
@@ -737,12 +769,15 @@ wait_for_ack(u32_t local_seqno)
 	 * assume that last packet which is present in list of unack packet
 	 * is acked, so delete it. and cancel the alarm which was set.
 	 */
-	rt_present = 0;
-	memset(&rt_hdr, 0, sizeof(Header));
-	memset(&rt_buf, 0, DATA_SIZE);
-	rt_data.content = rt_buf;
-	rt_data.len = 0;
-	rt_counter = 0;
+
+	reset_retransmission_buffer (0,NULL, NULL );
+
+	ptr_tmp =  signal(SIGALRM, ptr_original_signal_handler) ;
+	   
+	if ( (int)ret == SIG_ERR) {
+		dprint("tcp_socket:: Can't set signal handler!\n");
+		exit(1) ;
+	}
 
 	/* cancel the signal SIGALARM */
 	alarm(0);
@@ -1075,7 +1110,8 @@ handle_Established_state(Header * hdr, Data * dat)
                        "(packet had data %d) with ACK no %u\n",
                        dat->len, cc->remote_seqno);
 			}
-			send_ack(0);
+			send_ack(0); /* normal send ack*/
+			dprint ("handle_Established_state: send simple ack \n");
 		} else {
 			if (hdr->flags & FIN) {
 				/* as FIN flag is 1 bit of data */
@@ -1148,6 +1184,7 @@ send_ack(int flags)
 		}
 	}
 	bytes_sent = _send_tcp_packet(&hdr, &dat);
+	dprint("send_ack:: ACK sent\n");
 	
 	free(dat.content);
 	return 1;

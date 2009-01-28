@@ -58,7 +58,7 @@ tcp_wrap_around_client: tcp_wrap_around_client.c
 tcp_chop_server: tcp_chop_server.c
 	gcc $(CFLAGS) -o tcp_chop_server tcp_chop_server.c $(LDFLAGS)
 
-tcp_chop_server: tcp_chop_client.c
+tcp_chop_client: tcp_chop_client.c
 	gcc $(CFLAGS) -o tcp_chop_client tcp_chop_client.c $(LDFLAGS)
 
 clean:
