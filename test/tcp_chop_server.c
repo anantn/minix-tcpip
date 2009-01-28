@@ -12,10 +12,12 @@ main(void)
 	j = 2;
 	k = tcp_read(buf, j);
 	printf("Read %d of requested %d bytes\n", k, j);
-	for (i = 0; i < 10; i++) {
+	while (k <= 3070) {
 	  	j = j << 1;
 		k = tcp_read(buf, j);
-		printf("Read %d of requested %d bytes\n", k, j);
+		if (k == EOF)
+			break;
+		printf("Read total %d of requested %d bytes\n", k, j);
 	}
 
 	tcp_close();
