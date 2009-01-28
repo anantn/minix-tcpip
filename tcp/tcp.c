@@ -13,6 +13,7 @@ static int send_ack(int flags) ;
 static int setup_packet(Header* hdr );
 static int wait_for_ack(u32_t local_seqno);
 static int write_packet(char* buf, int len, int flags );
+static int socket_close(void) ;
 
 /* state handling functions*/
 static int handle_Listen_state(Header* hdr, Data* dat);
@@ -22,6 +23,7 @@ static int handle_Established_state(Header* hdr, Data* dat);
 
 /* signal handling function */
 static void alarm_signal_handler(int sig);
+static int previous_alarm_time = 0 ;
 static int clear_retransmission_mechanism ( void );
 static void reset_retransmission_buffer (int set, Header *hdr, Data *dat );
 static void (*ptr_original_signal_handler)(int sig) = SIG_IGN ;
@@ -61,7 +63,11 @@ _send_tcp_packet(Header* hdr, Data* dat)
 {
 	uchar* tmp;
 	int len, csum;
-
+	/* variables for packet dropping code */
+ /*	
+	TCPCtl* cc;
+	cc = Head->this;
+*/
 	if (!hdr->dst) {
 		dprint("_send_tcp_packet:: destination not specified, aborting\n");
 		return 0;
@@ -72,6 +78,18 @@ _send_tcp_packet(Header* hdr, Data* dat)
 	hdr->tlen = htons(HEADER_SIZE + dat->len);
 
 	show_packet(hdr, dat->len, 1);
+	/* packet dropping code */
+
+/*	if (cc->type == TCP_CONNECT )
+	{
+		if ( tcp_packet_counter == 2 )
+		{
+			dprint("###  _send_tcp_packet:: dropping above packet\n");
+			return dat->len;
+		}
+	}
+*/
+
 	swap_header(hdr, 0);
 
 	tmp = (uchar*) calloc(sizeof(Header) + dat->len, sizeof(uchar));
@@ -514,13 +532,13 @@ tcp_close(void)
 	case Last_Ack:
 		dprint("Fin Acknowledged, going to Closed\n");
 		cc->state = Closed;
-		/* FIXME : should call socket_close() here */
+		socket_close ();
 		break;
 
 	case Closed:
 		dprint("Already in Closed state\n");
 		cc->state = Closed;
-		/* FIXME : should call socket_close() here */
+		socket_close ();
 		break;
 
 	default:
@@ -572,7 +590,8 @@ alarm_signal_handler(int sig)
 	/* FIXME: check for return value of send_tcp_packet */
 	/* set alarm, in case even this packet is lost */
 	alarm(RETRANSMISSION_TIMER);
-	return;
+	/* cancel the signal SIGALARM */
+	previous_alarm_time -= RETRANSMISSION_TIMER;
 }
 
 
@@ -735,12 +754,11 @@ is_valid_ack(u32_t local_seqno, u32_t remote_ackno)
 static int
 wait_for_ack(u32_t local_seqno)
 {
-	int  ret ;
+	int time_missed;
 	TCPCtl* cc;
-	void (*ptr_tmp)(int sig) ;
 	cc = Head->this;
 
-	alarm(RETRANSMISSION_TIMER);
+	previous_alarm_time = alarm(RETRANSMISSION_TIMER);
 
 	while (!is_valid_ack(local_seqno, cc->remote_ackno)) {
 		dprint("wait_for_ack:: Calling handle_packets\n");
@@ -772,15 +790,17 @@ wait_for_ack(u32_t local_seqno)
 
 	reset_retransmission_buffer (0,NULL, NULL );
 
-	ptr_tmp =  signal(SIGALRM, ptr_original_signal_handler) ;
-	   
-	if ( (int)ret == SIG_ERR) {
+	if (signal(SIGALRM, ptr_original_signal_handler) == SIG_ERR) 
+	{
 		dprint("tcp_socket:: Can't set signal handler!\n");
 		exit(1) ;
 	}
 
 	/* cancel the signal SIGALARM */
-	alarm(0);
+	time_missed = alarm(0);
+/*	previous_alarm_time -= time_missed ;*/
+	alarm (previous_alarm_time ) ;
+
 	dprint("wait_for_ack:: Got good ack %u / %u, canceling alarm\n",
             cc->remote_ackno, local_seqno);
 
@@ -815,7 +835,7 @@ static int
 socket_close(void)
 {
 	TCPCtl* cc;
-	
+
 	cc = Head->this;
 	cc->state = Closed;
 	
@@ -824,16 +844,6 @@ socket_close(void)
 	free(cc->in_buffer);
 	free(cc->out_buffer);
 
-	/* clear all alarm signals */
-	/*
-	 * now set the signal handler, for SIGALARM, which will handle the
-	 * retransmissions
-	 */
-	if (signal(SIGALRM, SIG_DFL) == SIG_ERR) {
-		dprint("socket_close:: Error! Can't remove signal handler\n");
-		return -1;
-	}
-	alarm(0);
 
 	return 1;
 }

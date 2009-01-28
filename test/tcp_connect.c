@@ -5,9 +5,17 @@
  * $ ETH=2 ./tcp_connect */
 
 #include "tcp.h"
+#include <signal.h>
 
 #define MSG "hello world!"
 #define MSG2 "r u still there??"
+
+void tp_signal_handler (int sig)
+{
+	printf ("############################ came in for %d signal, sigalarm is %d\n", sig, SIGALRM);
+	printf ("\nso, quiting from here\n");
+	exit (1);
+}
 
 int
 main(int argc, char** argv)
@@ -23,6 +31,12 @@ main(int argc, char** argv)
     
 	len = strlen (MSG);
     
+
+	if ( signal(SIGALRM, tp_signal_handler) == SIG_ERR )
+	{
+		printf ("###### prob is sig setting in prog\n");
+	}
+	alarm(8) ;
     ret = tcp_socket();
 	if (ret == 0 )
 	{
@@ -46,5 +60,6 @@ main(int argc, char** argv)
 	printf ("\n====== closing connection\n");
 	tcp_close ();
    	printf ("\n====== Done closing\n");
+	for (;;);
     return 1;
 }
