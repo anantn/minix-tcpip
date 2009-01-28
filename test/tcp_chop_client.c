@@ -10,13 +10,14 @@ main(void)
 	tcp_connect(inet_addr("192.168.0.1"), 80);
 
 	memset(buf, 'a', 1024);
-	j = 2;
-	tcp_write(buf, j);
-	k = 0;
+	j = 1024;
+	k = tcp_write(buf, j);
+	printf("Written %d of %d requested bytes\n", k, j);
 	for (i = 0; i < 10; i++) {
 	  	memset(buf, 'b' + i, 1024);
-	  	j = j << 1;
-		while ((k += tcp_write(buf, j - k) != j)) {}
+	  	j = j >> 1;
+		k = tcp_write(buf, j);
+		printf("Written %d of %d requested bytes\n", k, j);
 	}
 
 	tcp_close();

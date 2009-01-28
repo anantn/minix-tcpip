@@ -10,14 +10,12 @@ main(void)
 	tcp_listen(80, (ipaddr_t*) my_ipaddr);
 
 	j = 2;
-	tcp_read(buf, j);
-	k = 0;
+	k = tcp_read(buf, j);
+	printf("Read %d of requested %d bytes\n", k, j);
 	for (i = 0; i < 10; i++) {
 	  	j = j << 1;
-		do {
-			k += tcp_read(buf, j - k);
-			printf("\nk=%d, j=%d\n", k, j);
-		} while (k != j);
+		k = tcp_read(buf, j);
+		printf("Read %d of requested %d bytes\n", k, j);
 	}
 
 	tcp_close();

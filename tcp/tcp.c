@@ -490,8 +490,9 @@ tcp_write(char* buf, int len)
 		 * is not commented, then tcp write will send only that much
 		 * data which can fit into one packet, and then return the
 		 * bytes_sent to calling function
+		 
+		 return bytes_sent;
 		 */
-		return bytes_sent;
 	}
 	
     return bytes_sent;
