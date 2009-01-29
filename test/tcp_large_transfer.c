@@ -10,7 +10,10 @@ main()
     char* buf;
 	int ret ; 
     tcp_socket();
-    tcp_connect(inet_addr("192.168.0.1"), 1080);
+    if ( tcp_connect(inet_addr("192.168.0.1"), 1080) == -1 )
+	{
+		printf ("Other side is not ready\n");
+	}
     
     buf = (char*)calloc(100001, sizeof(char));
     memset(buf, '1', 100001);

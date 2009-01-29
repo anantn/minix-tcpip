@@ -3,7 +3,7 @@
 /* util functions */
 static u16_t raw_checksum(uchar* dat, int len);
 static void swap_header(Header* hdr, int ntoh);
-static void show_packet(Header* hdr, int plen, int out);
+static void show_packet(Header* hdr, Data* dat, int out);
 
 /* more support functions*/
 static int can_read(int state);
@@ -78,7 +78,7 @@ _send_tcp_packet(Header* hdr, Data* dat)
 	hdr->prot = htons(IP_PROTO_TCP);
 	hdr->tlen = htons(HEADER_SIZE + dat->len);
 
-	show_packet(hdr, dat->len, 1);
+	show_packet(hdr, dat, 1);
 	/* packet dropping code */
 
 /*	if (cc->type == TCP_CONNECT )
@@ -157,7 +157,7 @@ _recv_tcp_packet(Header* hdr, Data* dat)
 	 * In this case, that's handle_packets.
 	 */
 	memcpy(dat->content, (uchar*) data + doff, dat->len);
-	show_packet(hdr, dat->len, 0);
+	show_packet(hdr, dat, 0);
 
 	return dat->len;
 }
@@ -344,8 +344,11 @@ tcp_connect(ipaddr_t dst, int port)
     dprint("tcp_connect:: Done, calling handle_packets\n");
 	while (cc->state != Established) {
 		handle_packets();
+		if (cc->state == Closed )
+		{
+			return -1 ;
+		}
 	}
-
 	return 1;
 }
 
@@ -373,6 +376,12 @@ tcp_listen(int port, ipaddr_t* src)
     dprint("tcp_listen:: Done, calling handle_packets\n");
 	do {
 		handle_packets();
+		if (cc->state == Closed)
+		{
+			dprint("tcp_listen:: prob occured, other side is not responding\n");
+			return -1 ;
+			
+		}
 	} while (cc->state != Established);
 
 	return 1;
@@ -397,7 +406,7 @@ tcp_read(char* buf, int maxlen)
 
 	/* check if the connection from other side is closed... */
 	/* if yes, then return EOF */
-	if (can_read(cc->state) == 0) {
+	if (can_read(cc->state) == Closed) {
 		dprint("tcp_read:: Error! State is %d, cannot read data\n",
                    cc->state);
 		return EOF;
@@ -496,7 +505,7 @@ tcp_write(char* buf, int len)
 	while (bytes_left > 0) {
 		/* check if the connection from your side is closed... */
 		/* if yes, then return error */
-		if (can_write(cc->state) == 0) {
+		if (can_write(cc->state) == Closed) {
 			dprint("tcp_write:: Error! State is %d, cannot write data\n",
                 cc->state);
 			if (bytes_sent == 0 )
@@ -519,6 +528,22 @@ tcp_write(char* buf, int len)
 		dprint("tcp_write:: Writing %d bytes with write_packet\n",
                 packet_size);
 		temp = write_packet(buf + bytes_sent, packet_size, 0);
+		if (temp ==  -1 )
+		{
+			if (cc->state == Closed )
+			{
+			if (bytes_sent == 0)
+			{
+				dprint("tcp_write:: other side is closed\n");
+				return -1 ;
+			}
+			else
+			{
+				dprint("tcp_write:: other side is closed\n");
+				return bytes_sent ;	
+			}
+			}
+		}
 		bytes_sent += temp;
 
 		bytes_left = len - bytes_sent;
@@ -550,9 +575,11 @@ tcp_close(void)
 	/* send FIN and start 4-way closing procedure */
 	/* clear variables */
 	dprint("tcp_close:: Called... ");
-	
-	/* send FIN packet */
-	ret = write_packet(&buffer, 0, FIN);
+	if (cc->state == Established || cc->state == Close_Wait )
+	{
+		/* send FIN packet */
+		ret = write_packet(&buffer, 0, FIN);
+	}
 
 	/*
 	 * it means got the ACK for your FIN, so, lets change the state
@@ -582,7 +609,7 @@ tcp_close(void)
 		break;
 
 	default:
-		dprint("Error: Odd state %d\n", cc->state);
+		dprint("Error: Odd state %d %s\n", cc->state, state_names[cc->state]);
 		break;
 
 	}
@@ -807,7 +834,7 @@ wait_for_ack(u32_t local_seqno)
 		dprint("wait_for_ack:: Calling handle_packets\n");
 		handle_packets();
 		if (cc->state == Last_Ack) {
-			if (rt_counter == 2) {
+			if (rt_counter >= 2) {
 				cc->state = Closed;
 				restore_app_alarm ();
 				return -1;
@@ -818,11 +845,16 @@ wait_for_ack(u32_t local_seqno)
 			return -1;
 		}
 		if (cc->state == Closing) {
-			if (rt_counter == 4) {
+			if (rt_counter >= 4) {
 				cc->state = Closed;
 				restore_app_alarm ();
 				return -1;
 			}
+		}
+		if (rt_counter >= 4) {
+			cc->state = Closed;
+			restore_app_alarm ();
+			return -1;
 		}
 		dprint("wait_for_ack:: Got ack %u, but expected ack %u\n",
                 cc->remote_ackno, local_seqno);
@@ -918,6 +950,10 @@ handle_packets()
 
 	cc = Head->this;
 
+	if (cc->state ==  Closed )
+	{
+		return -1 ;
+	}
 	dprint("handle_packets:: State %s, waiting for packet\n",
             state_names[cc->state]);
 
@@ -930,7 +966,7 @@ handle_packets()
 				return -1;
 			}
 		}
-			if (rt_counter >= 10) {
+			if (rt_counter >= 5) {
 				cc->state = Closed;
 				return -1;
 			}
@@ -1313,8 +1349,9 @@ swap_header(Header* hdr, int ntoh)
 
 /* Print a TCP packet in compact form */
 static void
-show_packet(Header* hdr, int plen, int out)
+show_packet(Header* hdr, Data* dat, int out)
 {   
+	int i;
 	if (out)
 		dprint("_send_tcp_packet:: ");
 	else
@@ -1333,7 +1370,9 @@ show_packet(Header* hdr, int plen, int out)
 	if (hdr->flags & RST) dprint("R");
 	
 	/* print data and state */
-	dprint("]} DATA{%d} ", plen);
-	dprint("%s\n", state_names[Head->this->state]);
+	dprint("]} DATA{%d}{ ", dat->len);
+	for (i = 0; i < dat->len; i++)
+		dprint("%c", dat->content[i]);
+	dprint("} %s\n", state_names[Head->this->state]);
 	noprint("");
 }

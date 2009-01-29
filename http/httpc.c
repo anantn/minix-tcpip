@@ -72,7 +72,7 @@ parse_url(char* url, char** host, char** path)
         return 0;
     }
     
-    hl = (int)found - ((int)url + 7);
+    hl = (unsigned long)found - ((unsigned long)url + 7);
     *host = (char*) calloc(hl + 1, sizeof(char));
     *path = (char*) calloc(strlen(found), sizeof(char));
     
@@ -128,7 +128,7 @@ fetch(char* path, char* host)
             printf("No such host %s found, quitting!\n", host);
             return 0;
         }
-        addr = inet_aton(h->h_addr);
+        addr = inet_aton(h->h_addr_list[0]);
         if (!h) {
             printf("Failed to resolved hostname %s, quitting!\n", host);
             return 0;
@@ -140,11 +140,11 @@ fetch(char* path, char* host)
         return 0;
     }
     
-    req = (char*) calloc(18 + strlen(host), sizeof(char));
+    req = (char*) calloc(18 + strlen(path), sizeof(char));
     sprintf(req, "GET /%s HTTP/1.1\r\n\r\n", path);
     dprint("httpc:: %s\n", req);
     
-    tcp_write(req, 18 + strlen(host));
+    tcp_write(req, 18 + strlen(path));
     
     /* Get response status */
     tcp_reliable_read(req, 13);

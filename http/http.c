@@ -55,20 +55,37 @@ chomp(int print)
 void
 read_flush()
 {
-    int i;
-    char buf[4];
+	char buf;
+    int i, state;
     
-    i = 0;
-    while (tcp_reliable_read(buf, 1)) {
+    i = 0; state = 0;
+    while (state != 4) {
 		i++;
-        if (buf[3] == '\r' && buf[2] == '\n' &&
-            buf[1] == '\r' && buf[0] == '\n') {
-		    dprint("http:: Flush DONE, read %d bytes more\n", i);
-            break;
-	    }
-	    buf[3] = buf[2];
-		buf[2] = buf[1];
-		buf[1] = buf[0];
+		if (tcp_read(&buf, 1) != 1) {
+			dprint("http:: Client not responding! Abort...\n");
+			exit(0);
+		}
+		switch (buf) {
+			case '\r':
+				if (state == 0)
+					state = 1;
+				else if (state == 2)
+					state = 3;
+				else
+					state = 0;
+				break;
+			case '\n':
+				if (state == 1)
+					state = 2;
+				else if (state == 3)
+					state = 4;
+				else 
+					state = 0;
+				break;
+			default:
+				state = 0;
+				break;
+		}
 	}
 }
 

@@ -10,7 +10,8 @@ main()
     int i, j, k;
     char* buf;
     int c1, c2 ;
-    tcp_socket();
+	
+    tcp_socket() ; 
     tcp_listen(1080, (ipaddr_t*)my_ipaddr);
     
     buf = (char*)calloc(200000, sizeof(char));
