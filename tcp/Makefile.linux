@@ -2,7 +2,8 @@
 CC = gcc
 AR = ar
 RANLIB = ranlib
-CFLAGS = -I. -I../ip-linux/ -g -Wall -DDEBUG -DLINUX -ansi
+CFLAGS = -I. -I../ip-linux/ -g -Wall -DLINUX -ansi
+#CFLAGS = -I. -I../ip-linux/ -g -Wall -DDEBUG -DLINUX -ansi
 
 all: libtcp.a
 

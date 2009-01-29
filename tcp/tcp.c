@@ -27,6 +27,7 @@ static int previous_alarm_time = 0 ;
 static int clear_retransmission_mechanism ( void );
 static void reset_retransmission_buffer (int set, Header *hdr, Data *dat );
 static void (*ptr_original_signal_handler)(int sig) = SIG_IGN ;
+static void restore_app_alarm ();
 
 /* noprint() */
 static int noprint(const char* format, ...) { return 1; }
@@ -383,7 +384,9 @@ tcp_read(char* buf, int maxlen)
 {
     TCPCtl* cc;
 	int     remaining_bytes = 0;
-	int     bytes_read = 0;
+	int     bytes_reading = 0;
+	int     can_read_max = 0;
+	int     total_bytes_read = 0;
 	int     old_window, new_window;
 
 	cc = Head->this;
@@ -391,8 +394,23 @@ tcp_read(char* buf, int maxlen)
 	/* sanity checks */
 	if (buf == NULL || maxlen < 0)
 		return -1;
+
+	/* check if the connection from other side is closed... */
+	/* if yes, then return EOF */
+	if (can_read(cc->state) == 0) {
+		dprint("tcp_read:: Error! State is %d, cannot read data\n",
+                   cc->state);
+		return EOF;
+	}
+
 	if (maxlen == 0)
 		return 0;
+
+	bytes_reading = total_bytes_read = 0 ;
+	can_read_max = maxlen ;
+	while ( total_bytes_read <  maxlen ) {
+
+		can_read_max = maxlen - total_bytes_read ;
 
 	while (cc->in_buffer->len == 0) {
 		/* check if the connection from other side is closed... */
@@ -400,24 +418,32 @@ tcp_read(char* buf, int maxlen)
 		if (can_read(cc->state) == 0) {
 			dprint("tcp_read:: Error! State is %d, cannot read data\n",
                     cc->state);
-			return EOF;
+			if (total_bytes_read == 0 )
+			{
+				return EOF;
+			}
+			else
+			{
+				return total_bytes_read ;
+			}
 		}
 		dprint("tcp_read:: No data in read buffer, calling handle packets\n");
 		handle_packets();
 	}
 
 	old_window = DATA_SIZE - cc->in_buffer->len;
-	bytes_read = MIN(cc->in_buffer->len, maxlen);
+	bytes_reading = MIN(cc->in_buffer->len, can_read_max );
 	
 	/* copy the bytes into buf given by user */
-	memcpy(buf, cc->in_buffer->content, bytes_read);
-	remaining_bytes = cc->in_buffer->len - bytes_read;
+	memcpy(buf + total_bytes_read , cc->in_buffer->content, bytes_reading);
+	remaining_bytes = cc->in_buffer->len - bytes_reading;
 
 	if (remaining_bytes > 0) {
 		memmove(cc->in_buffer->content,
-				(cc->in_buffer->content + bytes_read), remaining_bytes);
+				(cc->in_buffer->content + bytes_reading), remaining_bytes);
 	}
 	cc->in_buffer->len = remaining_bytes;
+	total_bytes_read += bytes_reading ;
 	
 	/* clear the data buffer */
 	memset(cc->in_buffer->content + remaining_bytes, 0,
@@ -434,8 +460,20 @@ tcp_read(char* buf, int maxlen)
 		}
 	}
 	
-	dprint ("tcp_read : read %d bytes successfully\n", bytes_read);
-	return bytes_read;
+	/*
+		 * this function supports both mode if following return
+		 * statement is commented, then tcp_write will assure thate
+		 * all data given to it is sent if following return statement
+		 * is not commented, then tcp write will send only that much
+		 * data which can fit into one packet, and then return the
+		 * bytes_sent to calling function
+		 */
+
+	dprint ("tcp_read : read %d bytes successfully\n", total_bytes_read);
+	return total_bytes_read; 
+
+	} /* end while : total_bytes_read < maxbuf */
+	return total_bytes_read;
 }
 
 
@@ -450,19 +488,21 @@ tcp_write(char* buf, int len)
 	
 	cc = Head->this;
 
-	/* check if the connection from your side is closed... */
-	/* if yes, then return error */
-	if (can_write(cc->state) == 0) {
-		dprint("tcp_write:: Error! State is %d, cannot write data\n",
-                cc->state);
-		return -1;
-	}
 	
 	bytes_sent = 0;
 	bytes_left = len;
 	dprint("tcp_write:: Writing %d bytes\n", len);
 	
 	while (bytes_left > 0) {
+		/* check if the connection from your side is closed... */
+		/* if yes, then return error */
+		if (can_write(cc->state) == 0) {
+			dprint("tcp_write:: Error! State is %d, cannot write data\n",
+                cc->state);
+			if (bytes_sent == 0 )
+				return -1;
+			else return bytes_sent ;
+		}
 		/*
 		 * if (cc->remote_window < bytes_left ) packet_size =
 		 * cc->remote_window ; else packet_size = bytes_left ;
@@ -491,9 +531,9 @@ tcp_write(char* buf, int len)
 		 * data which can fit into one packet, and then return the
 		 * bytes_sent to calling function
 		 */
-		return bytes_sent;
+/*		return bytes_sent; */ 
 	}
-	
+		
     return bytes_sent;
 }
 
@@ -705,7 +745,11 @@ write_packet(char* buf, int len, int flags)
 	hdr.window = DATA_SIZE - cc->in_buffer->len;
 	bytes_sent = _send_tcp_packet(&hdr, &dat);
 
-	wait_for_ack(ack_to_wait);
+	if ( wait_for_ack(ack_to_wait) == -1 )
+	{
+		dprint("write_packet:: error : sending packet failed, no ack received!\n");
+		return -1 ;
+	}
 	dprint("write_packet:: Packet sent successfully (ACK received)!\n");
 	return bytes_sent;
 }
@@ -754,7 +798,6 @@ is_valid_ack(u32_t local_seqno, u32_t remote_ackno)
 static int
 wait_for_ack(u32_t local_seqno)
 {
-	int time_missed;
 	TCPCtl* cc;
 	cc = Head->this;
 
@@ -766,15 +809,18 @@ wait_for_ack(u32_t local_seqno)
 		if (cc->state == Last_Ack) {
 			if (rt_counter == 2) {
 				cc->state = Closed;
+				restore_app_alarm ();
 				return -1;
 			}
 		}
 		if (cc->state == Closed) {
+			restore_app_alarm ();
 			return -1;
 		}
 		if (cc->state == Closing) {
 			if (rt_counter == 4) {
 				cc->state = Closed;
+				restore_app_alarm ();
 				return -1;
 			}
 		}
@@ -788,6 +834,19 @@ wait_for_ack(u32_t local_seqno)
 	 * is acked, so delete it. and cancel the alarm which was set.
 	 */
 
+
+	dprint("wait_for_ack:: Got good ack %u / %u, canceling alarm\n",
+            cc->remote_ackno, local_seqno);
+
+		restore_app_alarm ();
+	return 1;
+}
+
+
+static void restore_app_alarm ()
+{
+
+	int time_missed;
 	reset_retransmission_buffer (0,NULL, NULL );
 
 	if (signal(SIGALRM, ptr_original_signal_handler) == SIG_ERR) 
@@ -801,11 +860,8 @@ wait_for_ack(u32_t local_seqno)
 /*	previous_alarm_time -= time_missed ;*/
 	alarm (previous_alarm_time ) ;
 
-	dprint("wait_for_ack:: Got good ack %u / %u, canceling alarm\n",
-            cc->remote_ackno, local_seqno);
-
-	return 1;
 }
+
 
 static int 
 setup_packet(Header* hdr)
@@ -869,11 +925,16 @@ handle_packets()
 		len = _recv_tcp_packet(&hdr, &dat);
 		dprint("handle_packets:: Received packet with len %d\n", len);
 		if (cc->state == Last_Ack) {
-			if (rt_counter == 2) {
+			if (rt_counter >= 2) {
 				cc->state = Closed;
 				return -1;
 			}
 		}
+			if (rt_counter >= 10) {
+				cc->state = Closed;
+				return -1;
+			}
+		
 	} while (len < 0);
 
 	if (hdr.dport != Head->sport) {
@@ -1062,7 +1123,7 @@ handle_Syn_Recv_state(Header* hdr, Data* dat)
 			 * there is data in this packet, and also there is
 			 * space in buffer so, put this data in buffer
 			 */
-			memcpy(cc->in_buffer->content, dat->content, dat->len);
+			memcpy(cc->in_buffer->content+cc->in_buffer->len, dat->content, dat->len);
 			cc->in_buffer->len += dat->len;
 
 			cc->remote_seqno = hdr->seqno + dat->len;
@@ -1105,7 +1166,7 @@ handle_Established_state(Header * hdr, Data * dat)
 	if ((dat->len == 0) || (cc->in_buffer->len + dat->len <= DATA_SIZE)) {
 		/* accept the packet */
 		dprint("handle_Established_state:: Receive %d bytes\n", dat->len);
-		memcpy(cc->in_buffer->content, dat->content, dat->len);
+		memcpy(cc->in_buffer->content + cc->in_buffer->len, dat->content, dat->len);
 		cc->in_buffer->len += dat->len;
 
 		cc->remote_seqno = hdr->seqno + dat->len;
