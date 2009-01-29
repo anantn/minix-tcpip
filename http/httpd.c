@@ -151,10 +151,9 @@ handle_get(char* htdocs)
 int
 serve(char* htdocs)
 {
-    int con;
     char method[4];
 
-    if (!(con = tcp_socket())) {
+    if (!tcp_socket()) {
         dprint("httpd:: Could not initialize tcp_socket, quitting!\n");
         return 1;
     }
