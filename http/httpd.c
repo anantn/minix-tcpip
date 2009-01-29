@@ -1,30 +1,4 @@
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <dirent.h>
-#include <errno.h>
-#include <time.h>
-#include <tcp.h>
-
-int
-my_itoa(int n, char* s)
-{
-    int i, c, j, k;
-    
-    i = 0;    
-    do {
-        s[i++] = n % 10 + '0';
-    } while ((n /= 10) > 0);
-        
-
-    for (j = 0, k = i - 1; j < k; j++, k--) {
-        c = s[j];
-        s[j] = s[k];
-        s[k] = c;
-    }
-    s[i] = '\0';
-
-    return i;
-}
+#include <http.h>
 
 void
 get_mime_type(char* fPath, char* s)
@@ -58,6 +32,9 @@ send_initial_response(int code)
         case 404:
             tcp_write("404 Not Found\r\n", 15);
             break;
+        case 403:
+            tcp_write("403 Forbidden\r\n", 15);
+            break;
         default:
             tcp_write("200 OK\r\n", 8);
             break;
@@ -73,7 +50,8 @@ send_initial_response(int code)
 void
 handle_get(char* htdocs)
 {
-    int i = 0, j;
+    int i, j;
+    time_t t;
     char len[10];
     char mime[24];
     char path[256];    
@@ -83,6 +61,7 @@ handle_get(char* htdocs)
     struct stat buf;
     char* ptr = path;
     
+    i = 0;
     do {
         tcp_read(ptr, 1);
         ptr++; i++;
@@ -93,32 +72,28 @@ handle_get(char* htdocs)
     memcpy(fPath + strlen(htdocs), path, i - 1);
     dprint("httpd:: File path determined: %s\n", fPath);
 	dprint("httpd:: Flushing read buffer...\n");
-
-	i = 0;
-	ptr = path;
-	while (tcp_read(ptr, 1)) {
-		i++;
-        if (ptr[3] == '\r' && ptr[2] == '\n' &&
-            ptr[1] == '\r' && ptr[0] == '\n') {
-		    dprint("httpd:: Flush DONE, read %d bytes more\n", i);
-            break;
-	    }
-		ptr[3] = ptr[2];
-		ptr[2] = ptr[1];
-		ptr[1] = ptr[0];
-	}
+    read_flush();
 
     if (stat(fPath, &buf) != 0) {
-        /* Cannot access file because it does not exist? */
+        /* Cannot access file because it does not exist */
 		dprint("httpd:: Requested file does not exist, stat returned %s :(\n",
                 strerror(errno));
         send_initial_response(404);
         tcp_write("\r\n", 2);
+        free(fPath);
+        return;
+    }
+    
+    if (access(fPath, R_OK) != 0) {
+        /* Do not have read access */
+        dprint("httpd:: Do no have read access to the file, sending 403\n");
+        send_initial_response(403);
+        tcp_write("\r\n", 2);
+        free(fPath);
         return;
     }
     
     contents = (unsigned char*) calloc(buf.st_size, sizeof(unsigned char));    
-    /* FIXME: Get more information from buf, such atime and mtime */
     
     f = fopen(fPath, "r+");
     fread(contents, sizeof(unsigned char), buf.st_size, f);
@@ -127,6 +102,12 @@ handle_get(char* htdocs)
     /* Send response */
 	dprint("httpd:: File found, sending headers and content\n");
     send_initial_response(200);
+    
+    /* Send Last-Modified */
+    t = buf.st_mtime;
+    tcp_write("Last-Modified: ", 15);
+    tcp_write(ctime(&t), 24);
+    tcp_write("\r\n", 2);
     
     /* Send Content-Length */
     tcp_write("Content-Length: ", 16);
@@ -151,10 +132,9 @@ handle_get(char* htdocs)
 int
 serve(char* htdocs)
 {
-    int con;
     char method[4];
 
-    if (!(con = tcp_socket())) {
+    if (!tcp_socket()) {
         dprint("httpd:: Could not initialize tcp_socket, quitting!\n");
         return 1;
     }
