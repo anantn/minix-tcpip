@@ -1,33 +1,4 @@
-#include <tcp.h>
-
-void
-tcp_reliable_read(char* buf, int len)
-{
-    int i;
-    int read = 0;
-    
-    while (read < len) {
-        i = tcp_read(buf + read, len - read);
-        if (i == EOF)
-            break;
-        else
-            read += i;
-    }
-}
-
-void
-chomp(int print)
-{
-    char c, p;
-    p = '\0';
-    while (tcp_read(&c, 1)) {
-        if (print)
-            printf("%c", c);
-        if (p == '\r' && c == '\n')
-            break;
-        p = c;
-    }
-}
+#include <http.h>
 
 int
 print_status(char* buf)
@@ -52,6 +23,7 @@ print_headers(char* buf)
 {
     char sneak[4];
     char content[5];
+    char modified[9];
     
     tcp_reliable_read(sneak, 4);
     
@@ -68,6 +40,14 @@ print_headers(char* buf)
             } else if (strncmp(content, "ent-T", 5) == 0) {
                 tcp_reliable_read(content, 3);
                 printf("The Mime type of the document is");
+                chomp(1);
+            } else {
+                chomp(0);
+            }
+        } else if (strncmp(sneak, "Last", 4) == 0) {
+            tcp_reliable_read(modified, 9);
+            if (strncmp(modified, "-Modified", 9) == 0) {
+                printf("The document was last modified on");
                 chomp(1);
             } else {
                 chomp(0);
@@ -130,24 +110,41 @@ handle_response(char* path)
 int
 fetch(char* path, char* host)
 {
-    int i;
-    char* req = (char*) calloc(18 + strlen(host), sizeof(char));
+    char* req;
+    int i, ret;
+    ipaddr_t addr;
+    struct hostent* h;
     
     if (!tcp_socket()) {
-        dprint("httpc:: Could not initialize tcp_socket, quitting!\n");
+        printf("Could not initialize tcp_socket, quitting!\n");
         return 0;
     }
     
-    if (!tcp_connect(inet_aton(host), 80)) {
-        dprint("httpc:: Could not connect to %s, quitting!\n", host);
+    addr = inet_aton(host);
+    if (!addr) {
+        /* Let's try name resolution */
+        h = gethostbyname(host);
+        if (!h) {
+            printf("No such host %s found, quitting!\n", host);
+            return 0;
+        }
+        addr = inet_aton(h->h_addr);
+        if (!h) {
+            printf("Failed to resolved hostname %s, quitting!\n", host);
+            return 0;
+        }
+    }
+    
+    if (!tcp_connect(addr, 80)) {
+        printf("Could not connect to %s, quitting!\n", host);
         return 0;
     }
     
+    req = (char*) calloc(18 + strlen(host), sizeof(char));
     sprintf(req, "GET /%s HTTP/1.1\r\n\r\n", path);
     dprint("httpc:: %s\n", req);
     
     tcp_write(req, 18 + strlen(host));
-    
     
     /* Get response status */
     tcp_reliable_read(req, 13);
@@ -157,20 +154,25 @@ fetch(char* path, char* host)
     switch (i) {
         case 1:
             handle_response(path);
+            ret = 1;
             break;
         case 0:
             printf("The document could not be found on the server. ");
             printf("Perhaps the name of the document is incorrect?\n");
-            return 0;
+            ret = 0;
+            break;
         case -1:
             printf("The server did not have permissions to access ");
             printf("the document!\n");
-            return 0;
+            ret = 0;
+            break;
         case -2:
             printf("The server sent an incorrect HTTP response!\n");
-            return 0;
+            ret = 0;
+            break;
     }
     
+    free(path); free(host);
     return 1;
 }
 
@@ -182,13 +184,13 @@ main(int argc, char** argv)
     
     if (argc != 2) {
         /* Invalid arguments passes */
-        dprint("httpc:: Usage: httpc <url>\n");
+        printf("Usage: httpc <url>\n");
         return 1;
     }
     
     if (strncmp(argv[1], "http://", 7)) {
         /* Non-HTTP protocols not supported */
-        dprint("httpc:: Only http:// supported, quitting!\n");
+        printf("Only http:// supported, quitting!\n");
         return 1;
     }
     
@@ -196,7 +198,7 @@ main(int argc, char** argv)
         dprint("httpc:: Fetching %s from %s\n", path, host);
         return fetch(path, host);
     } else {
-        dprint("httpc:: Invalid host, quitting!\n");
+        printf("Invalid host, quitting!\n");
         return 1;
     }
 }

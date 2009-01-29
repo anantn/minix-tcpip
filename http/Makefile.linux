@@ -5,11 +5,11 @@ LDFLAGS = -I. -I../ip-linux/ -I../tcp/ ../tcp/libtcp.a ../ip-linux/libip.a
 
 all: httpd httpc
 
-httpd: httpd.c
-	$(CC) $(CFLAGS) -o httpd httpd.c $(LDFLAGS)
+httpd: httpd.c http.c
+	$(CC) $(CFLAGS) -o httpd httpd.c http.c $(LDFLAGS)
 
 httpc: httpc.c
-	$(CC) $(CFLAGS) -o httpc httpc.c $(LDFLAGS)
+	$(CC) $(CFLAGS) -o httpc httpc.c http.c $(LDFLAGS)
 	
 clean:
 	-rm httpd httpc
