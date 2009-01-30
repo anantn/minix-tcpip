@@ -21,6 +21,7 @@ print_status(char* buf)
 void
 print_headers(char* buf)
 {
+	int len;
     char sneak[4];
     char content[5];
     char modified[9];
@@ -120,7 +121,7 @@ fetch(char* path, char* host)
         return 0;
     }
     
-    addr = inet_aton(host);
+    addr = inet_addr(host);
     if (!addr) {
         /* Let's try name resolution */
         h = gethostbyname(host);
@@ -128,7 +129,7 @@ fetch(char* path, char* host)
             printf("No such host %s found, quitting!\n", host);
             return 0;
         }
-        addr = inet_aton(h->h_addr_list[0]);
+        addr = inet_addr(h->h_addr_list[0]);
         if (!h) {
             printf("Failed to resolved hostname %s, quitting!\n", host);
             return 0;
@@ -141,7 +142,7 @@ fetch(char* path, char* host)
     }
     
     req = (char*) calloc(18 + strlen(path), sizeof(char));
-    sprintf(req, "GET /%s HTTP/1.1\r\n\r\n", path);
+    sprintf(req, "GET /%s HTTP/1.0\r\n\r\n", path);
     dprint("httpc:: %s\n", req);
     
     tcp_write(req, 18 + strlen(path));

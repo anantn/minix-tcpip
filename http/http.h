@@ -9,5 +9,6 @@
 int noprint(char*a, ...);
 int my_itoa(int n, char* s);
 int tcp_reliable_read(char* buf, int len);
-void read_flush();
+void read_flush(void);
 void chomp(int print);
+

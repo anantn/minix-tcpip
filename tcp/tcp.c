@@ -27,7 +27,7 @@ static int previous_alarm_time = 0 ;
 static int clear_retransmission_mechanism ( void );
 static void reset_retransmission_buffer (int set, Header *hdr, Data *dat );
 static void (*ptr_original_signal_handler)(int sig) = SIG_IGN ;
-static void restore_app_alarm ();
+static void restore_app_alarm (void);
 
 /* noprint() */
 static int noprint(const char* format, ...) { return 1; }
@@ -210,9 +210,13 @@ recv_tcp_packet(ipaddr_t* src, u16_t* src_port, u16_t* dst_port,
 	*ack_nb = hdr->ackno;
 	*flags = (u8_t) (hdr->flags & 0xFF);
 	*win_sz = hdr->window;
-
-	data = (char*) dat->content;
-	*data_sz = dat->len;
+	
+	if (*data_sz <= dat->len) {
+		memcpy(data, dat->content, *data_sz);
+	} else {
+		memcpy(data, dat->content, dat->len);
+		*data_sz = dat->len;
+	}
 
 	return ret;
 }
@@ -875,7 +879,7 @@ wait_for_ack(u32_t local_seqno)
 }
 
 
-static void restore_app_alarm ()
+static void restore_app_alarm (void)
 {
 
 	int time_missed;
