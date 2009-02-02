@@ -168,7 +168,7 @@ main(int argc, char** argv)
     DIR* check;
 
     if (argc != 2) {
-        /* Invalid arguments passes */
+        /* Invalid arguments passed */
         dprint("httpd:: Usage: httpd <directory>\n");
         return 1;
     }

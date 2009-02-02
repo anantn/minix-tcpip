@@ -118,7 +118,7 @@ fetch(char* path, char* host)
     
     if (!tcp_socket()) {
         printf("Could not initialize tcp_socket, quitting!\n");
-        return 0;
+        return 1;
     }
     
     addr = inet_addr(host);
@@ -127,18 +127,18 @@ fetch(char* path, char* host)
         h = gethostbyname(host);
         if (!h) {
             printf("No such host %s found, quitting!\n", host);
-            return 0;
+            return 1;
         }
         addr = inet_addr(h->h_addr_list[0]);
         if (!h) {
             printf("Failed to resolved hostname %s, quitting!\n", host);
-            return 0;
+            return 1;
         }
     }
     
     if (!tcp_connect(addr, 80)) {
         printf("Could not connect to %s, quitting!\n", host);
-        return 0;
+        return 1;
     }
     
     req = (char*) calloc(18 + strlen(path), sizeof(char));
@@ -155,26 +155,26 @@ fetch(char* path, char* host)
     switch (i) {
         case 1:
             handle_response(path);
-            ret = 1;
+            ret = 0;
             break;
         case 0:
             printf("The document could not be found on the server. ");
             printf("Perhaps the name of the document is incorrect?\n");
-            ret = 0;
+            ret = 1;
             break;
         case -1:
             printf("The server did not have permissions to access ");
             printf("the document!\n");
-            ret = 0;
+            ret = 1;
             break;
         case -2:
             printf("The server sent an incorrect HTTP response!\n");
-            ret = 0;
+            ret = 1;
             break;
     }
     
     free(path); free(host);
-    return 1;
+    return ret;
 }
 
 int
