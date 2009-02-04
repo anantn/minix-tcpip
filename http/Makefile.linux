@@ -1,6 +1,6 @@
 
 CC = gcc
-CFLAGS = -g -Wall -DDEBUG -ansi
+CFLAGS = -g -Wall -DDEBUG -DLINUX -ansi
 LDFLAGS = -I. -I../ip-linux/ -I../tcp/ ../tcp/libtcp.a ../ip-linux/libip.a
 
 all: httpd httpc

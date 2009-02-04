@@ -21,7 +21,6 @@ print_status(char* buf)
 void
 print_headers(char* buf)
 {
-	int len;
     char sneak[4];
     char content[5];
     char modified[9];

@@ -24,6 +24,8 @@
 
 #define DATA_SIZE   8148
 #define PACKET_SIZE 8192
+#define START_PORT	8090
+#define MAX_CONN	256
 #define HEADER_SIZE 20
 #define CHECK_OFF   28
 #define HEADER_OFF  12
@@ -83,6 +85,11 @@ typedef struct _Data {
 } Data;
 
 typedef struct _TCPCtl {
+	int socket;
+	u16_t sport;
+	u16_t dport;
+	ipaddr_t dst;
+
     uchar state;
     uchar type;
     
@@ -95,16 +102,6 @@ typedef struct _TCPCtl {
 	Data* out_buffer;
     int remaining;
 } TCPCtl;
-
-typedef struct _TCPMux {
-    int socket;
-    u16_t sport;
-    u16_t dport;
-    ipaddr_t dst;
-    
-    TCPCtl* this;
-    TCPCtl* next;
-} TCPMux;
 
 /* public interface */
 int tcp_socket(void);

@@ -8,32 +8,39 @@ static void show_packet(Header* hdr, Data* dat, int out);
 /* more support functions*/
 static int can_read(int state);
 static int can_write(int state);
-static int handle_packets(void);
-static int send_ack(int flags) ;
-static int setup_packet(Header* hdr );
-static int wait_for_ack(u32_t local_seqno);
-static int write_packet(char* buf, int len, int flags );
-static int socket_close(void) ;
+static int handle_packets(int socket);
+static int send_ack(int socket, int flags) ;
+static int setup_packet(int socket, Header* hdr);
+static int wait_for_ack(int socket, u32_t local_seqno);
+static int write_packet(int socket, char* buf, int len, int flags );
+static int socket_close(int socket);
 
 /* state handling functions*/
-static int handle_Listen_state(Header* hdr, Data* dat);
-static int handle_Syn_Sent_state(Header* hdr, Data* dat);
-static int handle_Syn_Recv_state(Header* hdr, Data* dat);
-static int handle_Established_state(Header* hdr, Data* dat);
+static int handle_Listen_state(int socket, Header* hdr, Data* dat);
+static int handle_Syn_Sent_state(int socket, Header* hdr, Data* dat);
+static int handle_Syn_Recv_state(int socket, Header* hdr, Data* dat);
+static int handle_Established_state(int socket, Header* hdr, Data* dat);
 
 /* signal handling function */
 static void alarm_signal_handler(int sig);
-static int previous_alarm_time = 0 ;
-static int clear_retransmission_mechanism ( void );
-static void reset_retransmission_buffer (int set, Header *hdr, Data *dat );
+static void reset_retransmission_buffer(int set, Header *hdr, Data *dat);
 static void (*ptr_original_signal_handler)(int sig) = SIG_IGN ;
-static void restore_app_alarm (void);
+static void restore_app_alarm(void);
+static int clear_retransmission_mechanism(void);
 
-/* noprint() */
+/* noprint, to suppress warnings when DEBUG=0 */
 static int noprint(const char* format, ...) { return 1; }
 
-/* global state (single connection for now) */
-static TCPMux* Head;
+/* global connection states */
+static int previous_alarm_time = 0;
+
+/* array of connections, for multiple connection support */
+static TCPCtl muxer[MAX_CONN];
+/* current active connection */
+static TCPCtl* cc;
+/* last opened connection */
+static int last_conn = -1;
+
 static char state_names[][12] = {
 	"Closed",
 	"Listen",
@@ -64,11 +71,7 @@ _send_tcp_packet(Header* hdr, Data* dat)
 {
 	uchar* tmp;
 	int len, csum;
-	/* variables for packet dropping code */
- /*	
-	TCPCtl* cc;
-	cc = Head->this;
-*/
+	
 	if (!hdr->dst) {
 		dprint("_send_tcp_packet:: destination not specified, aborting\n");
 		return 0;
@@ -79,18 +82,6 @@ _send_tcp_packet(Header* hdr, Data* dat)
 	hdr->tlen = htons(HEADER_SIZE + dat->len);
 
 	show_packet(hdr, dat, 1);
-	/* packet dropping code */
-
-/*	if (cc->type == TCP_CONNECT )
-	{
-		if ( tcp_packet_counter == 2 )
-		{
-			dprint("###  _send_tcp_packet:: dropping above packet\n");
-			return dat->len;
-		}
-	}
-*/
-
 	swap_header(hdr, 0);
 
 	tmp = (uchar*) calloc(sizeof(Header) + dat->len, sizeof(uchar));
@@ -226,80 +217,74 @@ recv_tcp_packet(ipaddr_t* src, u16_t* src_port, u16_t* dst_port,
 int
 tcp_socket(void)
 {
-	TCPCtl* cc;
 	TCPCtl* ctl;
-	
-	if (!ip_init()) {
-		/* return 0; */
-	}
-	
-	Head = (TCPMux*) calloc(1, sizeof(TCPMux));
-	ctl = (TCPCtl*) calloc(1, sizeof(TCPCtl));
 
+	if (ip_init() < 0) {
+		return -1;
+	}
+
+	/* Determine port and socket number (last_conn + 1) */
+	last_conn++;
+	if (last_conn > 256) {
+		return -1;
+	}
+	ctl = &(muxer[last_conn]);
+	ctl->socket = last_conn;
+	ctl->sport = START_PORT + last_conn;
+	
 	/* All memory allocated here will be freed in socket_close. */
 
 	/* Allocating memory for incoming buffer */
 	ctl->in_buffer = (Data*) calloc(1, sizeof(Data));
 	ctl->in_buffer->content = (uchar*) calloc(DATA_SIZE + 1, sizeof(uchar));
-	memset(ctl->in_buffer->content, 0, (DATA_SIZE) * sizeof(uchar));
 	ctl->in_buffer->len = 0;
 
 	/* Allocating memory for outgoing buffer */
 	ctl->out_buffer = (Data*) calloc(1, sizeof(Data));
 	ctl->out_buffer->content = (uchar*) calloc(DATA_SIZE + 1, sizeof(uchar));
-	memset(ctl->out_buffer->content, 0, (DATA_SIZE) * sizeof(uchar));
 	ctl->out_buffer->len = 0;
 
 	/* Clear the data buffer */
 	ctl->remaining = 0;
-
 	ctl->state = Closed;
-	Head->socket = 1;
-	Head->sport = 9090;
-	Head->this = ctl;
-	Head->next = NULL;
-
-	cc = Head->this;
 
     /* FIXME: better way to set initial seq-no */
-	cc->local_seqno = 100;
+	ctl->local_seqno = 100;
 	/* Have to be set in three way handshake */
-	cc->remote_ackno = 0;
-	cc->remote_seqno = 0;
-	cc->remote_window = DATA_SIZE;
+	ctl->remote_ackno = 0;
+	ctl->remote_seqno = 0;
+	ctl->remote_window = DATA_SIZE;
 
 	/*
 	 * Now set the signal handler, for SIGALARM, which will handle the
 	 * retransmissions
 	 */
-	clear_retransmission_mechanism ();
+	clear_retransmission_mechanism();
 	
 	/* FIXME : checkup for failure of tcp_socket */
-	return 1;
+	return ctl->socket;
 }
 
-static
-int clear_retransmission_mechanism ( void )
+static int
+clear_retransmission_mechanism(void)
 {
-	reset_retransmission_buffer (0,NULL, NULL);	
-	return 0 ;
+	reset_retransmission_buffer(0, NULL, NULL);	
+	return 0;
 }
 
-static
-void reset_retransmission_buffer (int set, Header *hdr, Data *dat )
+static void
+reset_retransmission_buffer(int set, Header* hdr, Data* dat)
 {
-		/* initializing the retransmission buffer */
-		rt_present = 0;
-		memset(&rt_hdr, 0, sizeof(Header));
-		memset(&rt_data, 0, sizeof(Data));
-		memset(&rt_buf, 0, DATA_SIZE);
-		rt_data.content = rt_buf;
-		rt_data.len = 0;
-		rt_counter = 0;
+	/* initializing the retransmission buffer */
+	rt_present = 0;
+	memset(&rt_hdr, 0, sizeof(Header));
+	memset(&rt_data, 0, sizeof(Data));
+	memset(&rt_buf, 0, DATA_SIZE);
+	rt_data.content = rt_buf;
+	rt_data.len = 0;
+	rt_counter = 0;
 
-	if (set == 1 )
-	{
-
+	if (set == 1) {
 		memcpy (&rt_hdr, hdr, sizeof (Header));
 		memcpy(rt_data.content, dat->content, dat->len);
 		rt_data.len = dat->len;
@@ -307,7 +292,7 @@ void reset_retransmission_buffer (int set, Header *hdr, Data *dat )
 		rt_counter = 0;
 		ptr_original_signal_handler = signal(SIGALRM, alarm_signal_handler) ;
 	   
-		if ( ptr_original_signal_handler == SIG_ERR) {
+		if (ptr_original_signal_handler == SIG_ERR) {
 			dprint("tcp_socket:: Can't set signal handler!\n");
 			exit(1) ;
 		}
@@ -317,12 +302,10 @@ void reset_retransmission_buffer (int set, Header *hdr, Data *dat )
 /* Connection oriented part */
 
 int
-tcp_connect(ipaddr_t dst, int port)
+tcp_connect_socket(int socket, ipaddr_t dst, int port)
 {
-	TCPCtl* cc;
 	char buffer = 0;
-
-	cc = Head->this;
+	cc = &(muxer[socket]);
 
 	/*
 	 * FIXME: make sure that tcp_socket is called before calling this
@@ -335,33 +318,35 @@ tcp_connect(ipaddr_t dst, int port)
 	
 	/* FIXME: Sequence number allocation */
 	cc->local_seqno += 100;
-	Head->dport = port;
-	Head->dst = dst;
+	cc->dport = port;
+	cc->dst = dst;
 	
 	/* FIXME: better way to assign local port */
-	Head->sport = 6000;
 	cc->state = Syn_Sent;
 
 	/* Send SYN packet */
-	write_packet(&buffer, 0, SYN);
+	write_packet(socket, &buffer, 0, SYN);
 
     dprint("tcp_connect:: Done, calling handle_packets\n");
 	while (cc->state != Established) {
-		handle_packets();
-		if (cc->state == Closed )
-		{
-			return -1 ;
+		handle_packets(socket);
+		if (cc->state == Closed) {
+			return -1;
 		}
 	}
 	return 1;
 }
 
+int
+tcp_connect(ipaddr_t dst, int port)
+{
+	return tcp_connect_socket(0, dst, port);
+}
 
 int
-tcp_listen(int port, ipaddr_t* src)
+tcp_listen_socket(int socket, int port, ipaddr_t* src)
 {
-	TCPCtl* cc;
-	cc = Head->this;
+	cc = &(muxer[socket]);
 
 	/*
 	 * FIXME: make sure that tcp_socket is called before calling this
@@ -375,34 +360,36 @@ tcp_listen(int port, ipaddr_t* src)
 	
 	/* FIXME: better way to set initial seq-no */
 	cc->local_seqno += 400;
-	Head->sport = port;
+	cc->sport = port;
 
     dprint("tcp_listen:: Done, calling handle_packets\n");
 	do {
-		handle_packets();
-		if (cc->state == Closed)
-		{
+		handle_packets(socket);
+		if (cc->state == Closed) {
 			dprint("tcp_listen:: prob occured, other side is not responding\n");
-			return -1 ;
-			
+			return -1;
 		}
 	} while (cc->state != Established);
 
 	return 1;
 }
 
+int
+tcp_listen(int port, ipaddr_t* src)
+{
+	return tcp_listen_socket(0, port, src);
+}
 
 int
-tcp_read(char* buf, int maxlen)
+tcp_read_socket(int socket, char* buf, int maxlen)
 {
-    TCPCtl* cc;
 	int     remaining_bytes = 0;
 	int     bytes_reading = 0;
 	int     can_read_max = 0;
 	int     total_bytes_read = 0;
 	int     old_window, new_window;
 
-	cc = Head->this;
+	cc = &(muxer[socket]);
 
 	/* sanity checks */
 	if (buf == NULL || maxlen < 0)
@@ -431,17 +418,14 @@ tcp_read(char* buf, int maxlen)
 		if (can_read(cc->state) == 0) {
 			dprint("tcp_read:: Error! State is %d, cannot read data\n",
                     cc->state);
-			if (total_bytes_read == 0 )
-			{
+			if (total_bytes_read == 0) {
 				return EOF;
-			}
-			else
-			{
-				return total_bytes_read ;
+			} else {
+				return total_bytes_read;
 			}
 		}
 		dprint("tcp_read:: No data in read buffer, calling handle packets\n");
-		handle_packets();
+		handle_packets(socket);
 	}
 
 	old_window = DATA_SIZE - cc->in_buffer->len;
@@ -469,7 +453,7 @@ tcp_read(char* buf, int maxlen)
 			/* tell the sender about it by sending ack packet */
 			dprint("tcp_read:: Sending ack for advertising free buffer %d\n",
                     new_window);
-			send_ack(0);
+			send_ack(socket, 0);
 		}
 	}
 	
@@ -482,26 +466,29 @@ tcp_read(char* buf, int maxlen)
 		 * bytes_sent to calling function
 		 */
 
-	dprint ("tcp_read : read %d bytes successfully\n", total_bytes_read);
+	dprint ("tcp_read:: read %d bytes successfully\n", total_bytes_read);
 	return total_bytes_read; 
 
 	} /* end while : total_bytes_read < maxbuf */
 	return total_bytes_read;
 }
 
+int
+tcp_read(char* buf, int maxlen)
+{
+	return tcp_read_socket(0, buf, maxlen);
+}
 
 int
-tcp_write(char* buf, int len)
+tcp_write_socket(int socket, char* buf, int len)
 {
-    TCPCtl* cc;
 	int     bytes_left;
 	int     bytes_sent;
 	int     packet_size;
 	int     temp;
 	
-	cc = Head->this;
+	cc = &(muxer[socket]);
 
-	
 	bytes_sent = 0;
 	bytes_left = len;
 	dprint("tcp_write:: Writing %d bytes\n", len);
@@ -516,36 +503,28 @@ tcp_write(char* buf, int len)
 				return -1;
 			else return bytes_sent ;
 		}
-		/*
-		 * if (cc->remote_window < bytes_left ) packet_size =
-		 * cc->remote_window ; else packet_size = bytes_left ;
-		 */
+
 		packet_size = MIN(cc->remote_window, bytes_left);
 		while (packet_size == 0) {
 			dprint("tcp_write:: Remote window is empty %d(%d,%d), waiting\n",
                     packet_size, cc->remote_window, bytes_left);
-			handle_packets();
+			handle_packets(socket);
 			packet_size = MIN(cc->remote_window, bytes_left);
 		}
 
 
 		dprint("tcp_write:: Writing %d bytes with write_packet\n",
                 packet_size);
-		temp = write_packet(buf + bytes_sent, packet_size, 0);
-		if (temp ==  -1 )
-		{
-			if (cc->state == Closed )
-			{
-			if (bytes_sent == 0)
-			{
-				dprint("tcp_write:: other side is closed\n");
-				return -1 ;
-			}
-			else
-			{
-				dprint("tcp_write:: other side is closed\n");
-				return bytes_sent ;	
-			}
+		temp = write_packet(socket, buf + bytes_sent, packet_size, 0);
+		if (temp ==  -1) {
+			if (cc->state == Closed) {
+				if (bytes_sent == 0) {
+					dprint("tcp_write:: other side is closed\n");
+					return -1;
+				} else {
+					dprint("tcp_write:: other side is closed\n");
+					return bytes_sent;	
+				}
 			}
 		}
 		bytes_sent += temp;
@@ -559,30 +538,33 @@ tcp_write(char* buf, int len)
 		 * is not commented, then tcp write will send only that much
 		 * data which can fit into one packet, and then return the
 		 * bytes_sent to calling function
-		 */
-/*		return bytes_sent; */ 
+		 
+         return bytes_sent; */ 
 	}
 		
     return bytes_sent;
 }
 
+int
+tcp_write(char* buf, int len)
+{
+	return tcp_write_socket(0, buf, len);
+}
 
 int
-tcp_close(void)
+tcp_close_socket(int socket)
 {
-	TCPCtl* cc;
 	int     ret;
 	char    buffer = 0;
-	cc = Head->this;
-
+	
+	cc = &(muxer[socket]);
 
 	/* send FIN and start 4-way closing procedure */
 	/* clear variables */
 	dprint("tcp_close:: Called... ");
-	if (cc->state == Established || cc->state == Close_Wait )
-	{
+	if (cc->state == Established || cc->state == Close_Wait) {
 		/* send FIN packet */
-		ret = write_packet(&buffer, 0, FIN);
+		ret = write_packet(socket, &buffer, 0, FIN);
 	}
 
 	/*
@@ -603,13 +585,13 @@ tcp_close(void)
 	case Last_Ack:
 		dprint("Fin Acknowledged, going to Closed\n");
 		cc->state = Closed;
-		socket_close ();
+		socket_close(socket);
 		break;
 
 	case Closed:
 		dprint("Already in Closed state\n");
 		cc->state = Closed;
-		socket_close ();
+		socket_close(socket);
 		break;
 
 	default:
@@ -621,17 +603,19 @@ tcp_close(void)
 	return 1;
 }
 
+int
+tcp_close(void)
+{
+	return tcp_close_socket(0);
+}
 
 /* signal handler for SIG_ALARM, which will deal with retransmissions */
 static void
 alarm_signal_handler(int sig)
 {
-	TCPCtl* cc;
 	Header  c_hdr;
 	Data    c_data;
 	int     bytes_sent;
-	
-	cc = Head->this;
 	
 	/* set the signal handler again */
 	if (signal(SIGALRM, alarm_signal_handler) == SIG_ERR) {
@@ -700,27 +684,26 @@ can_write(int state)
  * retransmission till you get correct ACK
  */
 static int
-write_packet(char* buf, int len, int flags)
+write_packet(int socket, char* buf, int len, int flags)
 {
-	TCPCtl* cc;
 	Header  hdr;
 	Data    dat;
 	int     bytes_sent;
 	/* what ack_no to wait for? */
 	u32_t   ack_to_wait; 
 
-	cc = Head->this;
+	cc = &(muxer[socket]);
 
 	/* clear variables */
 	memset(&hdr, 0, sizeof(hdr));
 	memset(&dat, 0, sizeof(dat));
 	
 	/* assign data */
-	dat.content = (uchar *) buf;
+	dat.content = (uchar*) buf;
 	dat.len = len;
 
 	/* setup packet */
-	setup_packet(&hdr);
+	setup_packet(socket, &hdr);
 	/* updating local sequence number */
 	cc->local_seqno = cc->local_seqno + len;
 	ack_to_wait = cc->local_seqno;
@@ -763,12 +746,13 @@ write_packet(char* buf, int len, int flags)
 	}
 	
 	/* Put the packet into the list of unacked packets */
-	reset_retransmission_buffer (1,&hdr, &dat) ;
-/*	rt_hdr = hdr;
-	memcpy(rt_data.content, dat.content, dat.len);
-	rt_data.len = dat.len;
-	rt_present = 1;
-*/
+	reset_retransmission_buffer(1, &hdr, &dat);
+	
+    /*	rt_hdr = hdr;
+		memcpy(rt_data.content, dat.content, dat.len);
+		rt_data.len = dat.len;
+		rt_present = 1;
+    */
 
 	/* send the packet */
 	/* in case of retransmission, update the ack_no and window_size */
@@ -776,8 +760,7 @@ write_packet(char* buf, int len, int flags)
 	hdr.window = DATA_SIZE - cc->in_buffer->len;
 	bytes_sent = _send_tcp_packet(&hdr, &dat);
 
-	if ( wait_for_ack(ack_to_wait) == -1 )
-	{
+	if (wait_for_ack(socket, ack_to_wait) == -1) {
 		dprint("write_packet:: error : sending packet failed, no ack received!\n");
 		return -1 ;
 	}
@@ -786,12 +769,11 @@ write_packet(char* buf, int len, int flags)
 }
 
 static int
-is_valid_ack(u32_t local_seqno, u32_t remote_ackno)
+is_valid_ack(int socket, u32_t local_seqno, u32_t remote_ackno)
 {
-    TCPCtl* cc;
 	int     diff;
 	
-	cc = Head->this;
+	cc = &(muxer[socket]);
 
 	if (cc->state == Syn_Sent && remote_ackno == 0) {
 		return 0;
@@ -827,37 +809,36 @@ is_valid_ack(u32_t local_seqno, u32_t remote_ackno)
 }
 
 static int
-wait_for_ack(u32_t local_seqno)
+wait_for_ack(int socket, u32_t local_seqno)
 {
-	TCPCtl* cc;
-	cc = Head->this;
+	cc = &(muxer[socket]);
 
 	previous_alarm_time = alarm(RETRANSMISSION_TIMER);
 
-	while (!is_valid_ack(local_seqno, cc->remote_ackno)) {
+	while (!is_valid_ack(socket, local_seqno, cc->remote_ackno)) {
 		dprint("wait_for_ack:: Calling handle_packets\n");
-		handle_packets();
+		handle_packets(socket);
 		if (cc->state == Last_Ack) {
 			if (rt_counter >= 2) {
 				cc->state = Closed;
-				restore_app_alarm ();
+				restore_app_alarm();
 				return -1;
 			}
 		}
 		if (cc->state == Closed) {
-			restore_app_alarm ();
+			restore_app_alarm();
 			return -1;
 		}
 		if (cc->state == Closing) {
 			if (rt_counter >= 4) {
 				cc->state = Closed;
-				restore_app_alarm ();
+				restore_app_alarm();
 				return -1;
 			}
 		}
 		if (rt_counter >= 4) {
 			cc->state = Closed;
-			restore_app_alarm ();
+			restore_app_alarm();
 			return -1;
 		}
 		dprint("wait_for_ack:: Got ack %u, but expected ack %u\n",
@@ -874,41 +855,38 @@ wait_for_ack(u32_t local_seqno)
 	dprint("wait_for_ack:: Got good ack %u / %u, canceling alarm\n",
             cc->remote_ackno, local_seqno);
 
-		restore_app_alarm ();
+	restore_app_alarm();
 	return 1;
 }
 
 
-static void restore_app_alarm (void)
+static void
+restore_app_alarm(void)
 {
-
 	int time_missed;
-	reset_retransmission_buffer (0,NULL, NULL );
+	reset_retransmission_buffer(0, NULL,NULL);
 
-	if (signal(SIGALRM, ptr_original_signal_handler) == SIG_ERR) 
-	{
+	if (signal(SIGALRM, ptr_original_signal_handler) == SIG_ERR) {
 		dprint("tcp_socket:: Can't set signal handler!\n");
-		exit(1) ;
+		exit(1);
 	}
 
 	/* cancel the signal SIGALARM */
 	time_missed = alarm(0);
-/*	previous_alarm_time -= time_missed ;*/
-	alarm (previous_alarm_time ) ;
-
+	
+    /* previous_alarm_time -= time_missed */
+	alarm (previous_alarm_time);
 }
 
 
 static int 
-setup_packet(Header* hdr)
+setup_packet(int socket, Header* hdr)
 {
-	TCPCtl* cc;
-	
-	cc = Head->this;
+	cc = &(muxer[socket]);
 
-	hdr->dst = Head->dst;
-	hdr->sport = Head->sport;
-	hdr->dport = Head->dport;
+	hdr->dst = cc->dst;
+	hdr->sport = cc->sport;
+	hdr->dport = cc->dport;
 	hdr->seqno = cc->local_seqno;
 	hdr->ackno = cc->remote_seqno;
 	hdr->window = DATA_SIZE - cc->in_buffer->len;
@@ -924,18 +902,15 @@ setup_packet(Header* hdr)
 
 /* A function which will release all resources alloted to socket */
 static int
-socket_close(void)
+socket_close(int socket)
 {
-	TCPCtl* cc;
-
-	cc = Head->this;
+    cc = &(muxer[socket]);
 	cc->state = Closed;
 	
 	free(cc->in_buffer->content);
 	free(cc->out_buffer->content);
 	free(cc->in_buffer);
 	free(cc->out_buffer);
-
 
 	return 1;
 }
@@ -945,17 +920,15 @@ socket_close(void)
  * the ack, remote seq no.
  */
 static int
-handle_packets()
+handle_packets(int socket)
 {
-    TCPCtl*     cc;
 	Header      hdr;
 	Data        dat;
 	int         len, ret;
 
-	cc = Head->this;
+	cc = &(muxer[socket]);
 
-	if (cc->state ==  Closed )
-	{
+	if (cc->state ==  Closed) {
 		return -1 ;
 	}
 	dprint("handle_packets:: State %s, waiting for packet\n",
@@ -970,16 +943,16 @@ handle_packets()
 				return -1;
 			}
 		}
-			if (rt_counter >= 5) {
-				cc->state = Closed;
-				return -1;
-			}
 		
+		if (rt_counter >= 5) {
+			cc->state = Closed;
+			return -1;
+		}
 	} while (len < 0);
 
-	if (hdr.dport != Head->sport) {
+	if (hdr.dport != cc->sport) {
 		dprint("handle_packets:: Received packet for wrong port %u, "
-			   "expecting %u\n", hdr.dport, Head->sport);
+			   "expecting %u\n", hdr.dport, cc->sport);
 		return -1;
 	}
 	
@@ -992,15 +965,15 @@ handle_packets()
 		break;
 
 	case Listen:
-		ret = handle_Listen_state(&hdr, &dat);
+		ret = handle_Listen_state(socket, &hdr, &dat);
 		break;
 
 	case Syn_Sent:
-		ret = handle_Syn_Sent_state(&hdr, &dat);
+		ret = handle_Syn_Sent_state(socket, &hdr, &dat);
 		break;
 
 	case Syn_Recv:
-		ret = handle_Syn_Recv_state(&hdr, &dat);
+		ret = handle_Syn_Recv_state(socket, &hdr, &dat);
 		break;
 
 	case Established:
@@ -1009,7 +982,7 @@ handle_packets()
 	case Close_Wait:
 	case Closing:
 	case Last_Ack:
-		ret = handle_Established_state(&hdr, &dat);
+		ret = handle_Established_state(socket, &hdr, &dat);
 		break;
 
 	default:
@@ -1027,12 +1000,11 @@ handle_packets()
  * handle_Listen_state : should expect syn packet should send syn+ack packet
  */
 static int 
-handle_Listen_state(Header* hdr, Data* dat)
+handle_Listen_state(int socket, Header* hdr, Data* dat)
 {
-	TCPCtl* cc;
 	int     flags;
 
-	cc = Head->this;
+    cc = &(muxer[socket]);
 	flags = hdr->flags;
 
 	if (!(flags & SYN)) {
@@ -1042,15 +1014,15 @@ handle_Listen_state(Header* hdr, Data* dat)
 	
 	/* Ok, it's a SYN packet */
 	/* Get information about other side */
-	Head->dst = hdr->src;
-	Head->dport = hdr->sport;
+	cc->dst = hdr->src;
+	cc->dport = hdr->sport;
 	cc->remote_seqno = hdr->seqno + 1;
 	/* updating remote window size */
 	cc->remote_window = hdr->window;	
 	cc->state = Syn_Recv;
 	
 	dprint("handle_Listen_state:: Got SYN, sending SYN+ACK\n");
-	send_ack(SYN);
+	send_ack(socket, SYN);
 
 	return 1;
 }
@@ -1060,12 +1032,11 @@ handle_Listen_state(Header* hdr, Data* dat)
  * packet and should send ack packet
  */
 static int 
-handle_Syn_Sent_state(Header* hdr, Data* dat)
+handle_Syn_Sent_state(int socket, Header* hdr, Data* dat)
 {
-    TCPCtl* cc;
 	int     flags;
 	
-	cc = Head->this;
+    cc = &(muxer[socket]);
 	flags = hdr->flags;
 
 	if (!(flags & SYN)) {
@@ -1096,7 +1067,7 @@ handle_Syn_Sent_state(Header* hdr, Data* dat)
 		
 		/* need to send ack for this */
 		cc->state = Established;
-		send_ack(0);
+		send_ack(socket, 0);
 		return 1;
 	}
 
@@ -1110,17 +1081,16 @@ handle_Syn_Sent_state(Header* hdr, Data* dat)
 	cc->remote_seqno = hdr->seqno + 1;
 	cc->remote_window = hdr->window;
 	
-	send_ack(0);
+	send_ack(socket, 0);
 	return 1;
 }
 
 static int 
-handle_Syn_Recv_state(Header* hdr, Data* dat)
+handle_Syn_Recv_state(int socket, Header* hdr, Data* dat)
 {
-    TCPCtl* cc;
 	int     flags;
 	
-	cc = Head->this;
+	cc = &(muxer[socket]);
 	flags = hdr->flags;
 
 	if (!(flags & ACK)) {
@@ -1129,7 +1099,7 @@ handle_Syn_Recv_state(Header* hdr, Data* dat)
 		 * checking if it's retransmisson SYN packet, because SYN+ACK
 		 * was dropped
 		 */
-		return (handle_Listen_state(hdr, dat));
+		return (handle_Listen_state(socket, hdr, dat));
 	}
 	
 	/*
@@ -1177,10 +1147,9 @@ handle_Syn_Recv_state(Header* hdr, Data* dat)
  * packets 2. ack packets 3. fin packets
  */
 static int 
-handle_Established_state(Header * hdr, Data * dat)
+handle_Established_state(int socket, Header* hdr, Data* dat)
 {
-	TCPCtl* cc;
-	cc = Head->this;
+    cc = &(muxer[socket]);
 
 	/*
 	 * FIXME: in case of Closing state may be hdr->seqno may b
@@ -1195,7 +1164,7 @@ handle_Established_state(Header * hdr, Data * dat)
 		 * sending ack, just to tell other side dat something is
 		 * wrong.
 		 */
-		send_ack(0);
+		send_ack(socket, 0);
 		return -1;
 	}
 	/* update the ack number received */
@@ -1221,7 +1190,7 @@ handle_Established_state(Header * hdr, Data * dat)
                        "(packet had data %d) with ACK no %u\n",
                        dat->len, cc->remote_seqno);
 			}
-			send_ack(0); /* normal send ack*/
+			send_ack(socket, 0); /* normal send ack*/
 			dprint ("handle_Established_state: send simple ack \n");
 		} else {
 			if (hdr->flags & FIN) {
@@ -1230,7 +1199,7 @@ handle_Established_state(Header * hdr, Data * dat)
 				cc->remote_seqno = hdr->seqno;
 				dprint("handle_Established_state:: ACKing the FIN packet "
 					   "with ACK no %u\n", cc->remote_seqno + 1);
-				send_ack(FIN);
+				send_ack(socket, FIN);
 				
 				switch (cc->state) {
 				case Established:
@@ -1257,7 +1226,7 @@ handle_Established_state(Header * hdr, Data * dat)
 		 * and with smaller window size */
         dprint("handle_Established_state:: Packet dropped because of "
                "insufficient buffer space, sending old ACK no.\n");
-		send_ack(0);
+		send_ack(socket, 0);
 	}
 
 	return 1;
@@ -1265,20 +1234,19 @@ handle_Established_state(Header * hdr, Data * dat)
 
 /* Support functions */
 static int 
-send_ack(int flags)
+send_ack(int socket, int flags)
 {
-    TCPCtl* cc;
 	Data    dat;
 	Header  hdr;
 	int     bytes_sent;
 	
-	cc = Head->this;
+    cc = &(muxer[socket]);
 
 	dat.content = (uchar*) calloc(DATA_SIZE, sizeof(uchar));
 	memset(dat.content, 0, DATA_SIZE);
 	memset(&hdr, 0, sizeof(hdr));
 	dat.len = 0;
-	setup_packet(&hdr);
+	setup_packet(socket, &hdr);
 
 	if (cc->state == Syn_Recv) {
 		/* need to send SYN+ACK */
@@ -1377,6 +1345,6 @@ show_packet(Header* hdr, Data* dat, int out)
 	dprint("]} DATA{%d}{ ", dat->len);
 	for (i = 0; i < dat->len; i++)
 		dprint("%c", dat->content[i]);
-	dprint("} %s\n", state_names[Head->this->state]);
+    dprint("} %s\n", state_names[cc->state]);
 	noprint("");
 }

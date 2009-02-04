@@ -134,7 +134,7 @@ serve(char* htdocs)
 {
     char method[4];
 
-    if (!tcp_socket()) {
+    if (tcp_socket() < 0) {
         dprint("httpd:: Could not initialize tcp_socket, quitting!\n");
         return 1;
     }
