@@ -115,7 +115,7 @@ fetch(char* path, char* host)
     ipaddr_t addr;
     struct hostent* h;
     
-    if (!tcp_socket()) {
+    if (tcp_socket() < 0) {
         printf("Could not initialize tcp_socket, quitting!\n");
         return 1;
     }

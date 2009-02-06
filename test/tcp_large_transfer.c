@@ -20,6 +20,7 @@ main()
     ret = tcp_write(buf, 100001);
 	printf ("sent %d bytes successfully\n", ret );
     memset(buf, '2', 100001);
+	CURRUPT_PACKET_NOW = 1 ;
     ret = tcp_write(buf, 100001);
 	printf ("sent %d bytes successfully\n", ret );
     tcp_close();

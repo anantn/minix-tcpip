@@ -52,11 +52,12 @@ main(int argc, char** argv)
 	strncpy (buffer, info, len);
    	printf ("\n====== Data is %s \n", buffer);
    	printf (" ====== Done\n");
-/*	strcpy (info, MSG2) ;
+	strcpy (info, MSG2) ;
 	len = strlen (MSG2) ;
 	printf ("\n====== sending next set of data\n");
+	CURRUPT_PACKET_NOW = 1 ;
     printf("\n====== Sent %d bytes!\n", tcp_write(info, len));
-*/
+
 	printf ("\n====== closing connection\n");
 	tcp_close ();
    	printf ("\n====== Done closing\n");
