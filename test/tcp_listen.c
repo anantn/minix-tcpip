@@ -14,7 +14,7 @@ main(int argc, char** argv) {
 	ipaddr_t src_ip ;
 	int port_no = 6000 ;
     ret = tcp_socket();
-	if (ret == 0 )
+	if (ret == -1 )
 	{
 		printf ("\nError: Prob in initializing IP lib\n");	
 		exit(1);

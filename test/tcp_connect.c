@@ -38,7 +38,7 @@ main(int argc, char** argv)
 	}
 	alarm(8) ;
     ret = tcp_socket();
-	if (ret == 0 )
+	if (ret == -1 )
 	{
 		printf ("\nError: Prob in initializing IP lib\n");	
 		exit(1);

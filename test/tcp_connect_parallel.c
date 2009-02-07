@@ -22,7 +22,7 @@ main(int argc, char** argv)
 	len = strlen (MSG);
     
     ret = tcp_socket();
-	if (ret == 0 )
+	if (ret == -1)
 	{
 		printf ("\n=== Error: Prob in initializing IP lib\n");	
 		exit(1);

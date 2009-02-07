@@ -22,6 +22,11 @@
 #define inet_addr inet_aton
 #endif
 
+#define MIN(a,b) (a) < (b) ? (a) : (b) 
+typedef unsigned char uchar;
+typedef unsigned short ushort;
+
+/* Some constants we will use later */
 #define DATA_SIZE   8148
 #define PACKET_SIZE 8192
 #define START_PORT	8090
@@ -32,10 +37,6 @@
 #define DATA_SHIFT  12
 #define WORD_SIZE   4
 #define RETRANSMISSION_TIMER 1
-
-#define MIN(a,b) (a) < (b) ? (a) : (b) 
-typedef unsigned char uchar;
-typedef unsigned short ushort;
 
 enum {
     URG = 0x20,
@@ -61,6 +62,7 @@ enum {
     Time_Wait
 };
 
+/* A TCPv4 header */
 typedef struct _Header {
     /* First, the pseudoHeader */
     u32_t src;
@@ -72,18 +74,19 @@ typedef struct _Header {
     u16_t dport;
     u32_t seqno;
     u32_t ackno;
-    /* flags include offset, reserved and control bits */
+    /* The flags field includes offset, reserved and control bits */
     u16_t flags;
     u16_t window;
     u16_t chksum;
     u16_t urgent;
 } Header;
-    
+
 typedef struct _Data {
     u32_t len;
     uchar* content;
 } Data;
 
+/* One structure per connection */
 typedef struct _TCPCtl {
 	int socket;
 	u16_t sport;
@@ -103,22 +106,17 @@ typedef struct _TCPCtl {
     int remaining;
 } TCPCtl;
 
-/* public interface */
+/* Public interface */
 int tcp_socket(void);
 int tcp_connect(ipaddr_t dst, int port);
+int tcp_connect_socket(int socket, ipaddr_t dst, int port);
 int tcp_listen(int port, ipaddr_t *src);
+int tcp_listen_socket(int socket, int port, ipaddr_t *src);
 int tcp_read(char* buf, int maxlen);
+int tcp_read_socket(int socket, char* buf, int maxlen);
 int tcp_write(char* buf, int len);
+int tcp_write_socket(int socket, char* buf, int len);
 int tcp_close(void);
-
-/* Low level interface wrapper */
-int
-send_tcp_packet(ipaddr_t dst, u16_t src_port, u16_t dst_port,
-	u32_t seq_nb, u32_t ack_nb, u8_t flags, u16_t win_sz,
-	const char* data, int data_sz) ;
-int
-recv_tcp_packet(ipaddr_t* src, u16_t* src_port, u16_t* dst_port,
-	u32_t* seq_nb, u32_t* ack_nb, u8_t* flags, u16_t* win_sz,
-	char* data, int* data_sz);
+int tcp_close_socket(int socket);
 
 #endif

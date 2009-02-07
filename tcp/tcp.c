@@ -1,11 +1,11 @@
 #include "tcp.h"
 
-/* util functions */
+/* Utility functions */
 static u16_t raw_checksum(uchar* dat, int len);
 static void swap_header(Header* hdr, int ntoh);
 static void show_packet(Header* hdr, Data* dat, int out);
 
-/* more support functions*/
+/* Support functions*/
 static int can_read(int state);
 static int can_write(int state);
 static int handle_packets(int socket);
@@ -15,32 +15,32 @@ static int wait_for_ack(int socket, u32_t local_seqno);
 static int write_packet(int socket, char* buf, int len, int flags );
 static int socket_close(int socket);
 
-/* state handling functions*/
+/* State handling functions*/
 static int handle_Listen_state(int socket, Header* hdr, Data* dat);
 static int handle_Syn_Sent_state(int socket, Header* hdr, Data* dat);
 static int handle_Syn_Recv_state(int socket, Header* hdr, Data* dat);
 static int handle_Established_state(int socket, Header* hdr, Data* dat);
 
-/* signal handling function */
+/* Signal handling functions */
 static void alarm_signal_handler(int sig);
 static void reset_retransmission_buffer(int set, Header *hdr, Data *dat);
-static void (*ptr_original_signal_handler)(int sig) = SIG_IGN ;
 static void restore_app_alarm(void);
-static int clear_retransmission_mechanism(void);
-
-/* noprint, to suppress warnings when DEBUG=0 */
-static int noprint(const char* format, ...) { return 1; }
-
-/* global connection states */
+static void (*ptr_original_signal_handler)(int sig) = SIG_IGN;
 static int previous_alarm_time = 0;
 
-/* array of connections, for multiple connection support */
+/* To suppress warnings when DEBUG=0, we use noprint */
+static int noprint(const char* format, ...) { return 1; }
+
+/* Array of connections, for multiple connection support */
 static TCPCtl muxer[MAX_CONN];
-/* current active connection */
+
+/* Current active connection (used in every public interface function) */
 static TCPCtl* cc;
-/* last opened connection */
+
+/* Last opened connection */
 static int last_conn = -1;
 
+/* State names, for easy printing */
 static char state_names[][12] = {
 	"Closed",
 	"Listen",
@@ -62,10 +62,20 @@ static Data     rt_data;
 static uchar    rt_buf[DATA_SIZE];
 static Header   rt_hdr;
 
-static int      tcp_packet_counter = 0;
-static int      tcp_flow_type = 0;
-
-/* Low level send and receive functions */
+/**
+ * Low level send and receive functions.
+ * Note that we do not adhere to the recommended interface, but use our own
+ * structures.
+ */
+ 
+/** 
+ * _send_tcp_packet:
+ * Caller must set the following fields: 'dst', 'sport', 'dport',
+ * 'seqno', 'ackno', 'flags', 'window', and 'urgent'.
+ *
+ * This function WILL modify the supplied header structure, make a copy
+ * before using!
+ */
 static int
 _send_tcp_packet(Header* hdr, Data* dat)
 {
@@ -76,14 +86,16 @@ _send_tcp_packet(Header* hdr, Data* dat)
 		dprint("_send_tcp_packet:: destination not specified, aborting\n");
 		return 0;
 	}
-	++tcp_packet_counter;
 	hdr->src = my_ipaddr;
 	hdr->prot = htons(IP_PROTO_TCP);
 	hdr->tlen = htons(HEADER_SIZE + dat->len);
 
 	show_packet(hdr, dat, 1);
+
+	/* Checksum is calculated in network order */
 	swap_header(hdr, 0);
 
+    /* To calculate checksum we copy everything into a temporary buffer */
 	tmp = (uchar*) calloc(sizeof(Header) + dat->len, sizeof(uchar));
 	memcpy(tmp, (uchar*) hdr, sizeof(Header));
 	memcpy(tmp + sizeof(Header), dat->content, dat->len);
@@ -91,6 +103,7 @@ _send_tcp_packet(Header* hdr, Data* dat)
 
 	memcpy(tmp + CHECK_OFF, (uchar*) & csum, sizeof(u16_t));
 
+    /* Off it goes! */
 	len = ip_send(hdr->dst, IP_PROTO_TCP, 2,
 			  (void*) (tmp + HEADER_OFF), HEADER_SIZE + dat->len);
 	free(tmp);
@@ -98,6 +111,15 @@ _send_tcp_packet(Header* hdr, Data* dat)
 	return dat->len;
 }
 
+/**
+ * _recv_tcp_packet:
+ * Called need not set any fields, just pointers to PRE-ALLOCATED 'Header'
+ * and 'Data' structures will do.
+ *
+ * Space for Data->content should not be allocated however, as it will
+ * be done here. Freeing that memory is the responsibility of the caller!
+ * (The caller is handle_packets most (all?) of the time)
+ */
 static int
 _recv_tcp_packet(Header* hdr, Data* dat)
 {
@@ -111,6 +133,7 @@ _recv_tcp_packet(Header* hdr, Data* dat)
 	if (len == -1) {
 		return -1;
 	}
+	
 	/* Extract header - pseudo and real, still in network order */
 	hdr->src = src;
 	hdr->dst = dst;
@@ -118,11 +141,12 @@ _recv_tcp_packet(Header* hdr, Data* dat)
 	hdr->tlen = htons(len);
 	memcpy(((uchar*) hdr) + HEADER_OFF, data, HEADER_SIZE);
 
-	/* Check the checksum! */
+	/* Check the checksum */
 	tmp = (uchar*) calloc(HEADER_OFF + len, sizeof(uchar));
 	memcpy(tmp, (uchar*) hdr, HEADER_OFF);
 	memcpy(tmp + HEADER_OFF, (uchar*) data, len);
 	if (raw_checksum(tmp, HEADER_OFF + len) != 0) {
+	    /* Whoops, looks like this is a corrupted packet */
 		free(tmp);
 		dprint("_recv_tcp_packet:: Incorrect Checksum! Discarding packet...");
 		dprint("Got: %x instead of 0\n", raw_checksum(tmp, HEADER_OFF + len));
@@ -135,7 +159,7 @@ _recv_tcp_packet(Header* hdr, Data* dat)
 	hdr->tlen = len;
 	swap_header(hdr, 1);
 
-	/*
+	/**
 	 * We ignore options, just interested in data offset (which is
 	 * described in number of WORD_SIZE bytes).
 	 */
@@ -143,77 +167,32 @@ _recv_tcp_packet(Header* hdr, Data* dat)
 	dat->len = len - doff;
 	dat->content = (uchar*) calloc(dat->len, sizeof(uchar));
 	
-	/*
-	 * This memory is to be freed by the calling function.
-	 * In this case, that's handle_packets.
-	 */
 	memcpy(dat->content, (uchar*) data + doff, dat->len);
 	show_packet(hdr, dat, 0);
 
 	return dat->len;
 }
 
-/* Low level interface wrapper */
-int
-send_tcp_packet(ipaddr_t dst, u16_t src_port, u16_t dst_port,
-		u32_t seq_nb, u32_t ack_nb, u8_t flags, u16_t win_sz,
-		const char* data, int data_sz)
-{
-	int ret;
+/**
+ * TCP Interface functions.
+ *
+ * These adhere to the specified interface, but there is a set of functions
+ * appended with '_socket' to enable multiple connection support.
+ */
 
-	Header* hdr = (Header*) calloc(1, sizeof(Header));
-	Data* dat = (Data*) calloc(1, sizeof(Data));
-	dat->len = data_sz;
-	dat->content = (uchar*) data;
-
-	hdr->dst = dst;
-	hdr->sport = src_port;
-	hdr->dport = dst_port;
-	hdr->seqno = seq_nb;
-	hdr->ackno = ack_nb;
-	hdr->flags = (HEADER_SIZE / WORD_SIZE) << DATA_SHIFT;
-	hdr->flags = hdr->flags | flags;
-	hdr->window = win_sz;
-
-	ret = _send_tcp_packet(hdr, dat);
-	free(hdr);
-	free(dat);
-
-	return ret;
-}
-
-int
-recv_tcp_packet(ipaddr_t* src, u16_t* src_port, u16_t* dst_port,
-		u32_t* seq_nb, u32_t* ack_nb, u8_t* flags, u16_t* win_sz,
-		char* data, int* data_sz)
-{
-	int ret;
-
-	Header* hdr = (Header*) calloc(1, sizeof(Header));
-	Data* dat = (Data*) calloc(1, sizeof(Data));
-
-	ret = _recv_tcp_packet(hdr, dat);
-
-	*src = hdr->src;
-	*src_port = hdr->sport;
-	*dst_port = hdr->dport;
-	*seq_nb = hdr->seqno;
-	*ack_nb = hdr->ackno;
-	*flags = (u8_t) (hdr->flags & 0xFF);
-	*win_sz = hdr->window;
-	
-	if (*data_sz <= dat->len) {
-		memcpy(data, dat->content, *data_sz);
-	} else {
-		memcpy(data, dat->content, dat->len);
-		*data_sz = dat->len;
-	}
-
-	return ret;
-}
-
-/* TCP Interface functions */
-
+/**
+ * tcp_socket:
+ * Creates a new TCP socket. Will return an integer representing that
+ * socket. For single connection programs, that will always be 0,
+ * but subsequent calls will create new sockets with increasing integers as
+ * return values.
+ *
+ * Memory for the 'in' and 'out' buffers is allocated here. Source port
+ * allocation is also done, but calling tcp_listen() later on may over-write
+ * the value.
+ *
+ * All memory allocated here is to be freed in socket_close()
+ */
 int
 tcp_socket(void)
 {
@@ -231,15 +210,13 @@ tcp_socket(void)
 	ctl = &(muxer[last_conn]);
 	ctl->socket = last_conn;
 	ctl->sport = START_PORT + last_conn;
-	
-	/* All memory allocated here will be freed in socket_close. */
 
-	/* Allocating memory for incoming buffer */
+	/* Allocate memory for incoming buffer */
 	ctl->in_buffer = (Data*) calloc(1, sizeof(Data));
 	ctl->in_buffer->content = (uchar*) calloc(DATA_SIZE + 1, sizeof(uchar));
 	ctl->in_buffer->len = 0;
 
-	/* Allocating memory for outgoing buffer */
+	/* Allocate memory for outgoing buffer */
 	ctl->out_buffer = (Data*) calloc(1, sizeof(Data));
 	ctl->out_buffer->content = (uchar*) calloc(DATA_SIZE + 1, sizeof(uchar));
 	ctl->out_buffer->len = 0;
@@ -248,117 +225,97 @@ tcp_socket(void)
 	ctl->remaining = 0;
 	ctl->state = Closed;
 
-    /* FIXME: better way to set initial seq-no */
+    /* FIXME: better way to set initial seq-no? */
 	ctl->local_seqno = 100;
-	/* Have to be set in three way handshake */
+	
+	/* These have to be set in three way handshake */
 	ctl->remote_ackno = 0;
 	ctl->remote_seqno = 0;
 	ctl->remote_window = DATA_SIZE;
 
-	/*
-	 * Now set the signal handler, for SIGALARM, which will handle the
-	 * retransmissions
+	/**
+	 * Now set the signal handler for SIGALARM, which will handle
+	 * retransmissions.
 	 */
-	clear_retransmission_mechanism();
-	
-	/* FIXME : checkup for failure of tcp_socket */
+    reset_retransmission_buffer(0, NULL, NULL);
+
 	return ctl->socket;
 }
 
-static int
-clear_retransmission_mechanism(void)
-{
-	reset_retransmission_buffer(0, NULL, NULL);	
-	return 0;
-}
-
-static void
-reset_retransmission_buffer(int set, Header* hdr, Data* dat)
-{
-	/* initializing the retransmission buffer */
-	rt_present = 0;
-	memset(&rt_hdr, 0, sizeof(Header));
-	memset(&rt_data, 0, sizeof(Data));
-	memset(&rt_buf, 0, DATA_SIZE);
-	rt_data.content = rt_buf;
-	rt_data.len = 0;
-	rt_counter = 0;
-
-	if (set == 1) {
-		memcpy (&rt_hdr, hdr, sizeof (Header));
-		memcpy(rt_data.content, dat->content, dat->len);
-		rt_data.len = dat->len;
-		rt_present = 1;
-		rt_counter = 0;
-		ptr_original_signal_handler = signal(SIGALRM, alarm_signal_handler) ;
-	   
-		if (ptr_original_signal_handler == SIG_ERR) {
-			dprint("tcp_socket:: Can't set signal handler!\n");
-			exit(1) ;
-		}
-	}
-}
-
-/* Connection oriented part */
-
+/**
+ * tcp_connect_socket:
+ * Attempts to establish a connection with a remote TCP socket. Note that
+ * this function simply sets the appropriate data structure values, and sends
+ * a SYN packet, while the remainder of the 3-way handshake is handled by 
+ * handle_packets (which will delegate it further down)
+ */
 int
 tcp_connect_socket(int socket, ipaddr_t dst, int port)
 {
 	char buffer = 0;
+	
+	/* Make sure tcp_socket was called before calling this */
+	if (socket > last_conn)
+        return -1;
+        
+    /* 'cc' is a global variable, remember? */
 	cc = &(muxer[socket]);
 
-	/*
-	 * FIXME: make sure that tcp_socket is called before calling this
-	 * function
-	 */
-
-	/* setting up status variables for this connection */
-	cc->type = TCP_CONNECT;
-	tcp_flow_type = TCP_CONNECT;
-	
-	/* FIXME: Sequence number allocation */
+	/* FIXME: Sequence number allocation is rather stupid */
 	cc->local_seqno += 100;
+	cc->type = TCP_CONNECT;
 	cc->dport = port;
 	cc->dst = dst;
-	
-	/* FIXME: better way to assign local port */
-	cc->state = Syn_Sent;
-
+    
 	/* Send SYN packet */
 	write_packet(socket, &buffer, 0, SYN);
-
+    cc->state = Syn_Sent;
+    
     dprint("tcp_connect:: Done, calling handle_packets\n");
 	while (cc->state != Established) {
+	    /* Let handle_packets handle the rest */
 		handle_packets(socket);
 		if (cc->state == Closed) {
+		    dprint("tcp_connect:: Other side is not responding!\n");
 			return -1;
 		}
 	}
 	return 1;
 }
 
+/**
+ * tcp_connect:
+ * Single connection version of tcp_connect_socket. All other
+ * single connection functions follow the same pattern of calling their
+ * _socket counterparts with a static socket number of 0.
+ */
 int
 tcp_connect(ipaddr_t dst, int port)
 {
+    if (last_conn < 0)
+        return -1;
 	return tcp_connect_socket(0, dst, port);
 }
 
+/**
+ * tcp_listen_socket:
+ * Wait for incoming connections at specified port. Once again, we simply
+ * set the state variables and let handle_packets do the waiting and 3-way
+ * handshake for us.
+ */
 int
 tcp_listen_socket(int socket, int port, ipaddr_t* src)
 {
+    if (socket > last_conn)
+        return -1;
+        
 	cc = &(muxer[socket]);
 
-	/*
-	 * FIXME: make sure that tcp_socket is called before calling this
-	 * function
-	 */
-
-	/* now change the state */
+	/* Change the state */
 	cc->type = TCP_LISTEN;
-	tcp_flow_type = TCP_LISTEN;
 	cc->state = Listen;
 	
-	/* FIXME: better way to set initial seq-no */
+	/* FIXME: Sequence number allocation, again :-) */
 	cc->local_seqno += 400;
 	cc->sport = port;
 
@@ -366,7 +323,7 @@ tcp_listen_socket(int socket, int port, ipaddr_t* src)
 	do {
 		handle_packets(socket);
 		if (cc->state == Closed) {
-			dprint("tcp_listen:: prob occured, other side is not responding\n");
+			dprint("tcp_listen:: Other side is not responding!\n");
 			return -1;
 		}
 	} while (cc->state != Established);
@@ -377,116 +334,116 @@ tcp_listen_socket(int socket, int port, ipaddr_t* src)
 int
 tcp_listen(int port, ipaddr_t* src)
 {
+    if (last_conn < 0)
+        return -1;
 	return tcp_listen_socket(0, port, src);
 }
 
+/**
+ * tcp_read_socket:
+ * Read 'maxlen' bytes from socket. Will try to read as much as possible,
+ * but will return the actual number of bytes read (can be lesser, but
+ * never more than the number requested!)
+ */
 int
 tcp_read_socket(int socket, char* buf, int maxlen)
 {
-	int     remaining_bytes = 0;
-	int     bytes_reading = 0;
-	int     can_read_max = 0;
-	int     total_bytes_read = 0;
-	int     old_window, new_window;
+	int remaining_bytes = 0;
+	int bytes_reading = 0;
+	int can_read_max = 0;
+	int total_bytes_read = 0;
+	int old_window, new_window;
 
+    if (socket > last_conn)
+        return -1;
 	cc = &(muxer[socket]);
 
-	/* sanity checks */
+	/* Sanity check */
 	if (buf == NULL || maxlen < 0)
 		return -1;
 
-	/* check if the connection from other side is closed... */
-	/* if yes, then return EOF */
-	if (can_read(cc->state) == Closed) {
-		dprint("tcp_read:: Error! State is %d, cannot read data\n",
-                   cc->state);
-		return EOF;
-	}
-
+    /* No data to be read */
 	if (maxlen == 0)
 		return 0;
 
-	bytes_reading = total_bytes_read = 0 ;
-	can_read_max = maxlen ;
-	while ( total_bytes_read <  maxlen ) {
-
-		can_read_max = maxlen - total_bytes_read ;
-
-	while (cc->in_buffer->len == 0) {
-		/* check if the connection from other side is closed... */
-		/* if yes, then return EOF */
-		if (can_read(cc->state) == 0) {
-			dprint("tcp_read:: Error! State is %d, cannot read data\n",
-                    cc->state);
-			if (total_bytes_read == 0) {
-				return EOF;
-			} else {
-				return total_bytes_read;
-			}
-		}
-		dprint("tcp_read:: No data in read buffer, calling handle packets\n");
-		handle_packets(socket);
-	}
-
-	old_window = DATA_SIZE - cc->in_buffer->len;
-	bytes_reading = MIN(cc->in_buffer->len, can_read_max );
+    can_read_max = maxlen;
+	bytes_reading = total_bytes_read = 0;
 	
-	/* copy the bytes into buf given by user */
-	memcpy(buf + total_bytes_read , cc->in_buffer->content, bytes_reading);
-	remaining_bytes = cc->in_buffer->len - bytes_reading;
+    can_read_max = maxlen - total_bytes_read;
+        
+    while (cc->in_buffer->len == 0) {
+        if (can_read(cc->state) == Closed) {
+            dprint("tcp_read:: Cannot read data in Closed state\n");
+		    if (total_bytes_read == 0) {
+			    return EOF;
+            } else {
+                return total_bytes_read;
+            }
+	    }
+	    dprint("tcp_read:: No data in read buffer, calling "
+	           "handle_packets\n");
+        handle_packets(socket);
+    }
 
-	if (remaining_bytes > 0) {
-		memmove(cc->in_buffer->content,
-				(cc->in_buffer->content + bytes_reading), remaining_bytes);
-	}
-	cc->in_buffer->len = remaining_bytes;
-	total_bytes_read += bytes_reading ;
+    old_window = DATA_SIZE - cc->in_buffer->len;
+    bytes_reading = MIN(cc->in_buffer->len, can_read_max);
 	
-	/* clear the data buffer */
-	memset(cc->in_buffer->content + remaining_bytes, 0,
-			(DATA_SIZE - remaining_bytes) * sizeof(uchar));
+    /* Copy from the in buffer into the one given by user */
+    memcpy(buf + total_bytes_read, cc->in_buffer->content, bytes_reading);
+    remaining_bytes = cc->in_buffer->len - bytes_reading;
 
-	new_window = DATA_SIZE - cc->in_buffer->len;
-	if (old_window == 0) {
-		if (new_window != 0) {
-			/* created free space in buffer */
-			/* tell the sender about it by sending ack packet */
-			dprint("tcp_read:: Sending ack for advertising free buffer %d\n",
+    /* Not all of it was copied, so we move */
+    if (remaining_bytes > 0) {
+	    memmove(cc->in_buffer->content,
+                (cc->in_buffer->content + bytes_reading),
+                remaining_bytes);
+	}
+    cc->in_buffer->len = remaining_bytes;
+    total_bytes_read += bytes_reading ;
+	
+    /* Clear the data buffer */
+    memset(cc->in_buffer->content + remaining_bytes, 0,
+            (DATA_SIZE - remaining_bytes) * sizeof(uchar));
+    new_window = DATA_SIZE - cc->in_buffer->len;
+    if (old_window == 0) {
+	    if (new_window != 0) {
+		    /**
+		     * We've made some space in the buffer, let's tell the other
+		     * side about it.
+		     */
+            dprint("tcp_read:: Sending ack for advertising buffer %d\n",
                     new_window);
-			send_ack(socket, 0);
-		}
-	}
-	
-	/*
-		 * this function supports both mode if following return
-		 * statement is commented, then tcp_write will assure thate
-		 * all data given to it is sent if following return statement
-		 * is not commented, then tcp write will send only that much
-		 * data which can fit into one packet, and then return the
-		 * bytes_sent to calling function
-		 */
+            send_ack(socket, 0);
+        }
+    }
 
-	dprint ("tcp_read:: read %d bytes successfully\n", total_bytes_read);
-	return total_bytes_read; 
-
-	} /* end while : total_bytes_read < maxbuf */
+	dprint("tcp_read:: Read %d bytes successfully\n", total_bytes_read);
 	return total_bytes_read;
 }
 
 int
 tcp_read(char* buf, int maxlen)
 {
+    if (last_conn < 0)
+        return -1;
 	return tcp_read_socket(0, buf, maxlen);
 }
 
+/**
+ * tcp_write_socket:
+ * This function WILL block until len bytes have been sent and acked by the
+ * other end. In other words, the return value should always be len!
+ */
 int
 tcp_write_socket(int socket, char* buf, int len)
 {
-	int     bytes_left;
-	int     bytes_sent;
-	int     packet_size;
-	int     temp;
+	int bytes_left;
+	int bytes_sent;
+	int packet_size;
+	int temp;
 	
+	if (socket > last_conn)
+        return -1;
 	cc = &(muxer[socket]);
 
 	bytes_sent = 0;
@@ -494,17 +451,19 @@ tcp_write_socket(int socket, char* buf, int len)
 	dprint("tcp_write:: Writing %d bytes\n", len);
 	
 	while (bytes_left > 0) {
-		/* check if the connection from your side is closed... */
-		/* if yes, then return error */
-		if (can_write(cc->state) == Closed) {
-			dprint("tcp_write:: Error! State is %d, cannot write data\n",
-                cc->state);
-			if (bytes_sent == 0 )
+		/* Are we in a state in which write is not allowed? */
+		if (!can_write(cc->state)) {
+            dprint("tcp_write:: Cannot write data while in %s state!\n",
+                    state_names[cc->state]);
+			if (bytes_sent == 0)
 				return -1;
-			else return bytes_sent ;
+			else
+			    return bytes_sent;
 		}
 
 		packet_size = MIN(cc->remote_window, bytes_left);
+		
+		/* Make sure the other side is ready to read what we're sending */
 		while (packet_size == 0) {
 			dprint("tcp_write:: Remote window is empty %d(%d,%d), waiting\n",
                     packet_size, cc->remote_window, bytes_left);
@@ -512,34 +471,30 @@ tcp_write_socket(int socket, char* buf, int len)
 			packet_size = MIN(cc->remote_window, bytes_left);
 		}
 
-
-		dprint("tcp_write:: Writing %d bytes with write_packet\n",
-                packet_size);
+        /* Send a packet */
+		dprint("tcp_write:: Writing %d bytes \n", packet_size);
 		temp = write_packet(socket, buf + bytes_sent, packet_size, 0);
-		if (temp ==  -1) {
+		
+		if (temp == -1) {
 			if (cc->state == Closed) {
 				if (bytes_sent == 0) {
-					dprint("tcp_write:: other side is closed\n");
+					dprint("tcp_write:: Other side is Closed!\n");
 					return -1;
 				} else {
-					dprint("tcp_write:: other side is closed\n");
+					dprint("tcp_write:: Other side is Closed!\n");
 					return bytes_sent;	
 				}
 			}
 		}
 		bytes_sent += temp;
-
 		bytes_left = len - bytes_sent;
 
-		/*
-		 * this function supports both mode if following return
-		 * statement is commented, then tcp_write will assure thate
-		 * all data given to it is sent if following return statement
-		 * is not commented, then tcp write will send only that much
-		 * data which can fit into one packet, and then return the
-		 * bytes_sent to calling function
-		 
-         return bytes_sent; */ 
+		/**
+		 * Just in case you want tcp_write to return as soon as possible,
+		 * even though all the bytes have not been written, simply uncomment
+		 * the following line:
+         *
+        return bytes_sent; */ 
 	}
 		
     return bytes_sent;
@@ -551,53 +506,54 @@ tcp_write(char* buf, int len)
 	return tcp_write_socket(0, buf, len);
 }
 
+/**
+ * tcp_close_socket:
+ * Start closing a connection. Will send a FIN packet and process a 4-way
+ * closing procedure as specified by the RFC.
+ */
 int
 tcp_close_socket(int socket)
 {
-	int     ret;
-	char    buffer = 0;
+	int  ret;
+	char buffer = 0;
 	
+	if (socket > last_conn)
+        return -1;
 	cc = &(muxer[socket]);
 
-	/* send FIN and start 4-way closing procedure */
-	/* clear variables */
+	/* Send FIN and start 4-way closing procedure */
 	dprint("tcp_close:: Called... ");
 	if (cc->state == Established || cc->state == Close_Wait) {
-		/* send FIN packet */
 		ret = write_packet(socket, &buffer, 0, FIN);
 	}
 
-	/*
-	 * it means got the ACK for your FIN, so, lets change the state
+	/**
+	 * We've got the ACK for our FIN, let's change the state
 	 */
 	switch (cc->state) {
-
 	case Fin_Wait1:
 		dprint("Fin Acknowledged, going to Fin_Wait2\n");
 		cc->state = Fin_Wait2;
 		break;
-
 	case Closing:
 		dprint("Fin Acknowledged, going to Time_Wait\n");
 		cc->state = Time_Wait;
 		break;
-
 	case Last_Ack:
 		dprint("Fin Acknowledged, going to Closed\n");
 		cc->state = Closed;
+		/* Free resouces associated with the socket */
 		socket_close(socket);
 		break;
-
 	case Closed:
 		dprint("Already in Closed state\n");
 		cc->state = Closed;
+		/* Free resouces associated with the socket */
 		socket_close(socket);
 		break;
-
 	default:
-		dprint("Error: Odd state %d %s\n", cc->state, state_names[cc->state]);
+		dprint("Error: Odd state %s\n", state_names[cc->state]);
 		break;
-
 	}
 
 	return 1;
@@ -609,7 +565,48 @@ tcp_close(void)
 	return tcp_close_socket(0);
 }
 
-/* signal handler for SIG_ALARM, which will deal with retransmissions */
+/**
+ * Ok, we're done with the public interface functions. Utility, alarm
+ * handling and second layer functions follow.
+ */
+
+/**
+ * Manipulates the retransmission buffer and SIGALRM handler.
+ *
+ * If set = 0, this function will simply clear the retransmission buffer.
+ * When set = 1, it will additionally populate the buffer while setting
+ * up the library's signal handler.
+ */
+static void
+reset_retransmission_buffer(int set, Header* hdr, Data* dat)
+{
+	/* Initializing the retransmission buffer */
+	rt_present = 0;
+	memset(&rt_hdr, 0, sizeof(Header));
+	memset(&rt_data, 0, sizeof(Data));
+	memset(&rt_buf, 0, DATA_SIZE);
+	rt_data.content = rt_buf;
+	rt_data.len = 0;
+	rt_counter = 0;
+
+	if (set == 1) {
+		memcpy(&rt_hdr, hdr, sizeof (Header));
+		memcpy(rt_data.content, dat->content, dat->len);
+		rt_data.len = dat->len;
+		rt_present = 1;
+		rt_counter = 0;
+		ptr_original_signal_handler = signal(SIGALRM, alarm_signal_handler);
+	   
+		if (ptr_original_signal_handler == SIG_ERR) {
+			dprint("reset_transmission_buffer:: Can't set signal handler!\n");
+			exit(1);
+		}
+	}
+}
+
+/**
+ * Our signal handler for SIG_ALARM, which will deal with retransmissions.
+ */
 static void
 alarm_signal_handler(int sig)
 {
@@ -617,42 +614,39 @@ alarm_signal_handler(int sig)
 	Data    c_data;
 	int     bytes_sent;
 	
-	/* set the signal handler again */
+	/* Set the signal handler again (some systems reset it) */
 	if (signal(SIGALRM, alarm_signal_handler) == SIG_ERR) {
 		dprint("alarm_signal_handler:: Can't set signal handler!\n");
 		return;
 	}
 	if (!rt_present) {
-		/* no unack packet for retransmission */
+		/* No packet for retransmission */
 		return;
 	}
-	/* there is packet for restransmission. */
+	
+	/* Ok, there's a packet to be re-transmitted */
 	++(rt_counter);
-
-	/* re-send the packet */
-
 	c_hdr = rt_hdr;
 	c_data = rt_data;
 	
-	/*
-	 * update the ack_no and window_size as it may change
+	/**
+	 * Update the ackno and window as they may have changed
 	 */
 	dprint("alarm_signal_handler:: Re-transmitting packet: %d\n", rt_counter);
 	rt_hdr.ackno = cc->remote_seqno;
 	rt_hdr.window = DATA_SIZE - cc->in_buffer->len;
 	bytes_sent = _send_tcp_packet(&c_hdr, &c_data);
 	
-	/* FIXME: check for return value of send_tcp_packet */
-	/* set alarm, in case even this packet is lost */
+	/* Set alarm, in case the packet we just sent is lost / corrupted */
 	alarm(RETRANSMISSION_TIMER);
-	/* cancel the signal SIGALARM */
+	
+	/* Cancel the previous SIGALARM */
 	previous_alarm_time -= RETRANSMISSION_TIMER;
 }
 
-
-/* Private functions */
-
-/* Checks if you can read from socket or not */
+/**
+ * Checks if current state allows us to read or not
+ */
 static int
 can_read(int state)
 {
@@ -666,7 +660,9 @@ can_read(int state)
 	}
 }
 
-/* Checks if you can write into socket or not */
+/**
+ * Checks if current state allows us to write or not
+ */
 static int
 can_write(int state)
 {
@@ -680,8 +676,8 @@ can_write(int state)
 }
 
 /*
- * create a tcp packet out of given data and send it also, handle
- * retransmission till you get correct ACK
+ * Creates a TCP packet out of given data and sends it using the low-level
+ * function. Will also handle retransmission until we get a correct ACK.
  */
 static int
 write_packet(int socket, char* buf, int len, int flags)
@@ -689,46 +685,53 @@ write_packet(int socket, char* buf, int len, int flags)
 	Header  hdr;
 	Data    dat;
 	int     bytes_sent;
-	/* what ack_no to wait for? */
+	
+	/* What ackno do we wait for? */
 	u32_t   ack_to_wait; 
 
+    /* Note that we do not need to validate 'socket' as it has already been
+     * done at upper layers.
+     */
 	cc = &(muxer[socket]);
 
-	/* clear variables */
+	/* Clear structures */
 	memset(&hdr, 0, sizeof(hdr));
 	memset(&dat, 0, sizeof(dat));
 	
-	/* assign data */
+	/* Assign data */
 	dat.content = (uchar*) buf;
 	dat.len = len;
 
-	/* setup packet */
+	/* Setup packet */
 	setup_packet(socket, &hdr);
-	/* updating local sequence number */
+	
+	/* Update local sequence number */
 	cc->local_seqno = cc->local_seqno + len;
 	ack_to_wait = cc->local_seqno;
 
-	/* handle syn packets */
+	/* Handle SYN packets */
 	if (flags & SYN) {
-		/* resetting the flags to be the first SYN packet */
-		hdr.flags = 0;	/* clearing flags first */
+		hdr.flags = 0;
 		hdr.flags = (HEADER_SIZE / WORD_SIZE) << DATA_SHIFT;
-		hdr.flags = hdr.flags | SYN;	/* setup default flags */
-		/* SYN is single bit data, so incrementing ack to wait by one */
+		hdr.flags = hdr.flags | SYN;
+		/* SYN is single bit data, so incrementing ack_to_wait by one */
 		ack_to_wait = cc->local_seqno + 1;
 	}
+	
+	/* Handle FIN packets */
 	if (flags & FIN) {
-		/* resetting the flags to be the FIN packet */
-		hdr.flags = hdr.flags | FIN; /* setup default flags */
+		hdr.flags = hdr.flags | FIN;
 
 		/* FIN is single bit data, incrementing local_seqno by one */
 		if (len == 0) {
-			/*
-			 * after sending FIN packet, should i increment seq
-			 * no by one ?? the RFC example says yes, but test
-			 * written in CNP does not seems to agree with it.
-			 */
-			/* cc->local_seqno = cc->local_seqno + 1 ; */
+			/**
+			 * After sending a FIN packet, should we increment the
+			 * seqno by one? It looks like the RFC says yes, but the test
+			 * program doesn't agree. Since passing the test is crucial,
+			 * we comment the following line ;)
+			 *
+			cc->local_seqno = cc->local_seqno + 1 ; */
+			
 			ack_to_wait = cc->local_seqno + 1;
 		}
 		
@@ -737,7 +740,6 @@ write_packet(int socket, char* buf, int len, int flags)
 			cc->state = Fin_Wait1;
             dprint("write_packet:: State changed to Fin_Wait1\n");
 			break;
-
 		case Close_Wait:
 			cc->state = Last_Ack;
             dprint("write_packet:: State changed to Last_Ack\n");
@@ -747,32 +749,34 @@ write_packet(int socket, char* buf, int len, int flags)
 	
 	/* Put the packet into the list of unacked packets */
 	reset_retransmission_buffer(1, &hdr, &dat);
-	
-    /*	rt_hdr = hdr;
-		memcpy(rt_data.content, dat.content, dat.len);
-		rt_data.len = dat.len;
-		rt_present = 1;
-    */
 
-	/* send the packet */
-	/* in case of retransmission, update the ack_no and window_size */
+	/**
+	 * Send the packet
+     * In case of retransmission, update the ackno and window.
+     */
 	hdr.ackno = cc->remote_seqno;
 	hdr.window = DATA_SIZE - cc->in_buffer->len;
 	bytes_sent = _send_tcp_packet(&hdr, &dat);
 
 	if (wait_for_ack(socket, ack_to_wait) == -1) {
-		dprint("write_packet:: error : sending packet failed, no ack received!\n");
-		return -1 ;
+		dprint("write_packet:: Sending packet failed, no ack received!\n");
+		return -1;
 	}
+	
 	dprint("write_packet:: Packet sent successfully (ACK received)!\n");
 	return bytes_sent;
 }
 
+/**
+ * This function checks if an ACK is valid. We cover the default case,
+ * as well as cases of sequence number rollover (possible in very very
+ * large transfers), and checking if we have all the bytes that they claim
+ * we have.
+ */
 static int
 is_valid_ack(int socket, u32_t local_seqno, u32_t remote_ackno)
 {
-	int     diff;
-	
+	int diff;
 	cc = &(muxer[socket]);
 
 	if (cc->state == Syn_Sent && remote_ackno == 0) {
@@ -800,7 +804,7 @@ is_valid_ack(int socket, u32_t local_seqno, u32_t remote_ackno)
 			dprint("is_valid_ack:: SYN or FIN packet, not valid ACK\n");
 			return 0;
 		}
-		/* Wrap around */
+		/* The sequence number wrapped around! (Wow, 4G transferred?) */
 		return 1;
 	}
 
@@ -808,11 +812,14 @@ is_valid_ack(int socket, u32_t local_seqno, u32_t remote_ackno)
 	return 0;
 }
 
+/**
+ * This function will receive a packet and check if it is an ACK that
+ * we expected to receive. If it was, we reset the re-transmission alarm.
+ */
 static int
 wait_for_ack(int socket, u32_t local_seqno)
 {
 	cc = &(muxer[socket]);
-
 	previous_alarm_time = alarm(RETRANSMISSION_TIMER);
 
 	while (!is_valid_ack(socket, local_seqno, cc->remote_ackno)) {
@@ -841,16 +848,7 @@ wait_for_ack(int socket, u32_t local_seqno)
 			restore_app_alarm();
 			return -1;
 		}
-		dprint("wait_for_ack:: Got ack %u, but expected ack %u\n",
-                cc->remote_ackno, local_seqno);
 	}
-
-	/*
-	 * FIXME: few assumptions Whenever we will get correct ACK, we will
-	 * assume that last packet which is present in list of unack packet
-	 * is acked, so delete it. and cancel the alarm which was set.
-	 */
-
 
 	dprint("wait_for_ack:: Got good ack %u / %u, canceling alarm\n",
             cc->remote_ackno, local_seqno);
@@ -859,7 +857,11 @@ wait_for_ack(int socket, u32_t local_seqno)
 	return 1;
 }
 
-
+/**
+ * This function restores the original signal handler that may have bee
+ * set by the user's application. Yes, we do it after every call to a
+ * function in our library, not just after tcp_close()
+ */
 static void
 restore_app_alarm(void)
 {
@@ -871,15 +873,17 @@ restore_app_alarm(void)
 		exit(1);
 	}
 
-	/* cancel the signal SIGALARM */
+	/* Cancel the signal SIGALARM */
 	time_missed = alarm(0);
-	
-    /* previous_alarm_time -= time_missed */
-	alarm (previous_alarm_time);
+	alarm(previous_alarm_time);
 }
 
 
-static int 
+/**
+ * Setup a Header structure suitable for passing to the low-level
+ * _send_tcp_packet and _recv_tcp_packet functions.
+ */
+static int
 setup_packet(int socket, Header* hdr)
 {
 	cc = &(muxer[socket]);
@@ -900,7 +904,9 @@ setup_packet(int socket, Header* hdr)
 	return 1;
 }
 
-/* A function which will release all resources alloted to socket */
+/**
+ * This function releases all resources allocated to a socket.
+ */
 static int
 socket_close(int socket)
 {
@@ -916,8 +922,10 @@ socket_close(int socket)
 }
 
 /*
- * waits for one incomming packet put the data in incoming buffer and update
- * the ack, remote seq no.
+ * Waits for one incoming packet, puts the data in the incoming buffer,
+ * and updates the ack / remote seqno's as appropriate. Most of the time
+ * is spent in this function, which then calls state handling functions
+ * depending on the state we are in.
  */
 static int
 handle_packets(int socket)
@@ -937,19 +945,21 @@ handle_packets(int socket)
 	do {
 		len = _recv_tcp_packet(&hdr, &dat);
 		dprint("handle_packets:: Received packet with len %d\n", len);
+		/* Handle a case of 4-way close properly */
 		if (cc->state == Last_Ack) {
 			if (rt_counter >= 2) {
 				cc->state = Closed;
 				return -1;
 			}
 		}
-		
+		/* If we've retransmitted 5 times already, quit trying! */
 		if (rt_counter >= 5) {
 			cc->state = Closed;
 			return -1;
 		}
 	} while (len < 0);
 
+    /* Port mismatch */
 	if (hdr.dport != cc->sport) {
 		dprint("handle_packets:: Received packet for wrong port %u, "
 			   "expecting %u\n", hdr.dport, cc->sport);
@@ -958,24 +968,20 @@ handle_packets(int socket)
 	
 	dprint("handle_packets:: Dealing with %s\n", state_names[cc->state]);
 	
+	/* Handle state */
 	switch (cc->state) {
-
 	case Closed:
         ret = 1;
 		break;
-
 	case Listen:
 		ret = handle_Listen_state(socket, &hdr, &dat);
 		break;
-
 	case Syn_Sent:
 		ret = handle_Syn_Sent_state(socket, &hdr, &dat);
 		break;
-
 	case Syn_Recv:
 		ret = handle_Syn_Recv_state(socket, &hdr, &dat);
 		break;
-
 	case Established:
 	case Fin_Wait1:
 	case Fin_Wait2:
@@ -984,27 +990,25 @@ handle_packets(int socket)
 	case Last_Ack:
 		ret = handle_Established_state(socket, &hdr, &dat);
 		break;
-
 	default:
 		dprint("handle_packets:: Error! Unplanned state %d\n", cc->state);
 		break;
-
 	}
 
-	/* freeing up the memory alloted by recv_tcp_packet() */
+	/* Freeing up memory allocated by _recv_tcp_packet() */
 	free(dat.content);
 	return 1;
 }
 
-/*
- * handle_Listen_state : should expect syn packet should send syn+ack packet
+/**
+ * Expect a SYN packet and send a SYN+ACK in response.
  */
 static int 
 handle_Listen_state(int socket, Header* hdr, Data* dat)
 {
-	int     flags;
-
+	int flags;
     cc = &(muxer[socket]);
+    
 	flags = hdr->flags;
 
 	if (!(flags & SYN)) {
@@ -1012,12 +1016,12 @@ handle_Listen_state(int socket, Header* hdr, Data* dat)
 		return -1;
 	}
 	
-	/* Ok, it's a SYN packet */
 	/* Get information about other side */
 	cc->dst = hdr->src;
 	cc->dport = hdr->sport;
 	cc->remote_seqno = hdr->seqno + 1;
-	/* updating remote window size */
+	
+	/* Update remote window size */
 	cc->remote_window = hdr->window;	
 	cc->state = Syn_Recv;
 	
@@ -1027,16 +1031,17 @@ handle_Listen_state(int socket, Header* hdr, Data* dat)
 	return 1;
 }
 
-/*
- * handle_Syn_Sent_state : will be called from connect should expect syn+ack
- * packet and should send ack packet
+/**
+ * Expect a SYN+ACK packet and send an ACK in response.
+ * We also handle the case of just a SYN packet, which means a simultaneous
+ * open has occurred.
  */
 static int 
 handle_Syn_Sent_state(int socket, Header* hdr, Data* dat)
 {
-	int     flags;
-	
+	int flags;
     cc = &(muxer[socket]);
+    
 	flags = hdr->flags;
 
 	if (!(flags & SYN)) {
@@ -1044,13 +1049,10 @@ handle_Syn_Sent_state(int socket, Header* hdr, Data* dat)
 		return -1;
 	}
 	
-	/*
-	 * Ok, it's a SYN packet. Check if there's an ack with it.
-	 */
 	if (flags & ACK) {
-		/* check if ackno received is correct or not */
+		/* Check if ackno received is correct or not */
 		if (cc->local_seqno + 1 != hdr->ackno) {
-			/* Got wrong ack-no... ignoring */
+			/* Got wrong ackno... ignoring */
 			dprint("handle_Syn_Sent_state:: SYN+ACK were set, but with "
 				   "the wrong sequence no., ignoring!\n");
 			return -1;
@@ -1059,21 +1061,18 @@ handle_Syn_Sent_state(int socket, Header* hdr, Data* dat)
 		dprint("handle_Syn_Sent_state:: Got correct SYN+ACK packet, "
                "sending ACK\n");
 
-		/* Got correct ack no... updating variables */
 		cc->remote_ackno = hdr->ackno;
 		cc->local_seqno = hdr->ackno;
 		cc->remote_seqno = hdr->seqno + 1;
 		cc->remote_window = hdr->window;
 		
-		/* need to send ack for this */
+		/* Send an ack for this */
 		cc->state = Established;
 		send_ack(socket, 0);
 		return 1;
 	}
 
-	/*
-	 * Got just SYN packet. It's a case of simultaneous open
-	 */
+	/* Got just a SYN packet => simultaneous open. */
 	dprint("handle_Syn_Sent_state:: Got just SYN, simultaneous open. "
 		   "Sending SYN+ACK\n");
 
@@ -1085,31 +1084,33 @@ handle_Syn_Sent_state(int socket, Header* hdr, Data* dat)
 	return 1;
 }
 
-static int 
+/**
+ * Complete the 3-way handshake :)
+ */
+static int
 handle_Syn_Recv_state(int socket, Header* hdr, Data* dat)
 {
-	int     flags;
-	
+	int flags;
 	cc = &(muxer[socket]);
+	
 	flags = hdr->flags;
 
 	if (!(flags & ACK)) {
 		dprint("handle_Syn_Recv_state:: ACK not set, ignoring!\n");
 		/*
-		 * checking if it's retransmisson SYN packet, because SYN+ACK
-		 * was dropped
+		 * We check if this might be a retransmitted SYN packet,
+		 * because SYN+ACK was dropped.
 		 */
 		return (handle_Listen_state(socket, hdr, dat));
 	}
 	
-	/*
-	 * FIXME: you may get FIN packet at this stage... then you need to
-	 * change to FIN_WAIT_1 state
+	/**
+	 * FIXME: What if we get a FIN packet at this stage?
+	 * Move to Fin_Wait1?
 	 */
 
-	/* Got ACK, check if it is the correct ACK */
+	/* Got ACK, check if it is the correct one */
 	if (cc->local_seqno + 1 != hdr->ackno) {
-		/* Got wrong ack-no... ignoring the packet */
 		dprint("handle_Syn_Recv_state:: ACK set, but with wrong ACK no., "
 			   "ignoring!\n");
 		return -1;
@@ -1120,69 +1121,64 @@ handle_Syn_Recv_state(int socket, Header* hdr, Data* dat)
 	cc->local_seqno = hdr->ackno;
 	cc->remote_seqno = hdr->seqno + dat->len;
 	cc->remote_window = hdr->window;
-	
-	/* need to send ack for this */
+
 	cc->state = Established;
 	dprint("handle_Syn_Recv_state:: Got ACK, going to Established state\n");
 	
-	/* check if we have enough space in incoming buffer */
+	/* Check if we have enough space in incoming buffer */
 	if (dat->len > 0) {
 		dprint("handle_Syn_Recv_state:: ACK packet contains data!\n");
 		if (cc->in_buffer->len + dat->len <= DATA_SIZE) {
-			/*
-			 * there is data in this packet, and also there is
-			 * space in buffer so, put this data in buffer
+			/**
+			 * There is data in this packet, and there's space in the buffer.
+			 * Let's copy it!
 			 */
-			memcpy(cc->in_buffer->content+cc->in_buffer->len, dat->content, dat->len);
+			memcpy(cc->in_buffer->content + cc->in_buffer->len,
+			        dat->content, dat->len);
 			cc->in_buffer->len += dat->len;
-
 			cc->remote_seqno = hdr->seqno + dat->len;
 		}
 	}
 	return 1;
 }
 
-/*
- * handle_Established_state : you can receive following packets 1. data
- * packets 2. ack packets 3. fin packets
+/**
+ * We handle data packets, ACK packets and FIN packets here.
  */
 static int 
 handle_Established_state(int socket, Header* hdr, Data* dat)
 {
     cc = &(muxer[socket]);
 
-	/*
-	 * FIXME: in case of Closing state may be hdr->seqno may b
-	 * incremented by one... as this behaviour is not clear in RFC
-	 */
-	/* check if it is correct packet */
+	/* FIXME: In the case of Closing state is the seqno incremented by 1? */
+
 	if (cc->remote_seqno != hdr->seqno) {
 		dprint("handle_Established_state:: Received incorrect packet, "
 			   "expected %u, received %u, ACKing with old ACK number\n",
                 cc->remote_seqno, hdr->seqno);
-		/*
-		 * sending ack, just to tell other side dat something is
-		 * wrong.
+		/**
+		 * Send an ack, just to tell other side that something is wrong.
 		 */
 		send_ack(socket, 0);
 		return -1;
 	}
-	/* update the ack number received */
+	
+	/* Update the ackno received */
 	cc->remote_ackno = hdr->ackno;
 	cc->remote_window = hdr->window;
 
-	/* check if we have enough space in incoming buffer */
+	/* Check if we have enough space in incoming buffer */
 	if ((dat->len == 0) || (cc->in_buffer->len + dat->len <= DATA_SIZE)) {
 		/* accept the packet */
 		dprint("handle_Established_state:: Receive %d bytes\n", dat->len);
-		memcpy(cc->in_buffer->content + cc->in_buffer->len, dat->content, dat->len);
+		memcpy(cc->in_buffer->content + cc->in_buffer->len,
+		        dat->content, dat->len);
 		cc->in_buffer->len += dat->len;
-
 		cc->remote_seqno = hdr->seqno + dat->len;
 
 		/*
-		 * if packet contain data or if it's fin packet, then only
-		 * acknowledge it
+		 * If the packet contains data or if it's a FIN packet,
+		 * only then do we ackowledge it.
 		 */
 		if (dat->len != 0) {
 			if (hdr->flags & FIN) {
@@ -1194,8 +1190,6 @@ handle_Established_state(int socket, Header* hdr, Data* dat)
 			dprint ("handle_Established_state: send simple ack \n");
 		} else {
 			if (hdr->flags & FIN) {
-				/* as FIN flag is 1 bit of data */
-				/* cc->remote_seqno = hdr->seqno + 1 ; */
 				cc->remote_seqno = hdr->seqno;
 				dprint("handle_Established_state:: ACKing the FIN packet "
 					   "with ACK no %u\n", cc->remote_seqno + 1);
@@ -1221,9 +1215,10 @@ handle_Established_state(int socket, Header* hdr, Data* dat)
 			}
 		}
 	} else {	
-		/* no buffer to store data, discard the
-		 * packet send the ack with old ack number
-		 * and with smaller window size */
+		/**
+		 * No buffer space to store data, so we discard the packet send
+		 * and appropriate ACK with a smaller window size.
+         */
         dprint("handle_Established_state:: Packet dropped because of "
                "insufficient buffer space, sending old ACK no.\n");
 		send_ack(socket, 0);
@@ -1232,7 +1227,9 @@ handle_Established_state(int socket, Header* hdr, Data* dat)
 	return 1;
 }
 
-/* Support functions */
+/**
+ * Send a simple ACK, a SYN+ACK, or an ACK for a FIN.
+ */
 static int 
 send_ack(int socket, int flags)
 {
@@ -1249,7 +1246,6 @@ send_ack(int socket, int flags)
 	setup_packet(socket, &hdr);
 
 	if (cc->state == Syn_Recv) {
-		/* need to send SYN+ACK */
 		dprint("send_ack:: Sending SYN+ACK\n");
 		hdr.flags = 0;
 		hdr.flags = (HEADER_SIZE / WORD_SIZE) << DATA_SHIFT;
@@ -1269,9 +1265,14 @@ send_ack(int socket, int flags)
 	return 1;
 }
 
-/* Utility functions */
+/**
+ * We're done with the library! Utitity functions follow
+ */
 
-/* This function simply calculates the checksum over a raw buffer */
+/**
+ * This function simply calculates the checksum over a raw buffer. It is
+ * simply inet_checksum, as provided.
+ */
 static u16_t
 raw_checksum(uchar* buf, int buflen)
 {
@@ -1294,7 +1295,11 @@ raw_checksum(uchar* buf, int buflen)
     return (u16_t)~sum;
 }
 
-/* Swaps endianess on a Header structure */
+/**
+ * Swap endianess on a Header structure
+ * ntoh = 1 => Network to Host order
+ * ntoh = 0 => Host to Network order
+ */
 static void
 swap_header(Header* hdr, int ntoh)
 {
@@ -1319,7 +1324,10 @@ swap_header(Header* hdr, int ntoh)
     }
 }
 
-/* Print a TCP packet in compact form */
+/**
+ * Print a TCP packet in compact form.
+ * Displays the header values and first 10 bytes of the data */
+ */
 static void
 show_packet(Header* hdr, Data* dat, int out)
 {   
@@ -1343,7 +1351,7 @@ show_packet(Header* hdr, Data* dat, int out)
 	
 	/* print data and state */
 	dprint("]} DATA{%d}{ ", dat->len);
-	for (i = 0; i < dat->len; i++)
+	for (i = 0; i < dat->len && i < 10; i++)
 		dprint("%c", dat->content[i]);
     dprint("} %s\n", state_names[cc->state]);
 	noprint("");

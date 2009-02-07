@@ -17,7 +17,7 @@ main(int argc, char** argv) {
 	/* DROP_PACKET_COUNTER = 1 ;*/
 	
     ret = tcp_socket();
-	if (ret == 0 )
+	if (ret == -1)
 	{
 		printf ("\nError: Prob in initializing IP lib\n");	
 		exit(1);
