@@ -55,7 +55,7 @@ main(int argc, char** argv)
 	strcpy (info, MSG2) ;
 	len = strlen (MSG2) ;
 	printf ("\n====== sending next set of data\n");
-	CURRUPT_PACKET_NOW = 1 ;
+/*	CURRUPT_PACKET_NOW = 1 ; */
     printf("\n====== Sent %d bytes!\n", tcp_write(info, len));
 
 	printf ("\n====== closing connection\n");

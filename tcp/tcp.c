@@ -1326,8 +1326,9 @@ swap_header(Header* hdr, int ntoh)
 
 /**
  * Print a TCP packet in compact form.
- * Displays the header values and first 10 bytes of the data */
+ * Displays the header values and first 10 bytes of the data 
  */
+
 static void
 show_packet(Header* hdr, Data* dat, int out)
 {   
