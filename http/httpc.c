@@ -183,7 +183,7 @@ main(int argc, char** argv)
     char* path;
     
     if (argc != 2) {
-        /* Invalid arguments passes */
+        /* Invalid arguments passed */
         printf("Usage: httpc <url>\n");
         return 1;
     }

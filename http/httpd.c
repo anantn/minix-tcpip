@@ -5,6 +5,7 @@ get_mime_type(char* fPath, char* s)
 {
     int len = strlen(fPath);
     
+    /* Simple comparison of file extension to determine MIME type */
     if (strncmp("txt", fPath + len - 3, 3) == 0)
         strcpy(s, "text/plain");
     else if (strncmp("htm", fPath + len - 3, 3) == 0)
@@ -50,23 +51,27 @@ send_initial_response(int code)
 void
 handle_get(char* htdocs)
 {
+    FILE* f;
     int i, j;
     time_t t;
     char len[10];
     char mime[24];
     char path[256];    
-    char* fPath;
-    FILE* f;
+
+    char* fPath;    
     unsigned char* contents;
     struct stat buf;
     char* ptr = path;
     
+    /* Read the requested file. FIXME: Maximum of 256 characters! */
     i = 0;
     do {
         tcp_read(ptr, 1);
         ptr++; i++;
     } while ((*(ptr - 1) != 32) && (i < 256));
+    /* 32 is the ASCII code for whitespace */
 
+    /* Find out complete path of file requested */
     fPath = (char*)calloc(strlen(htdocs) + i, sizeof(char));
     memcpy(fPath, htdocs, strlen(htdocs));
     memcpy(fPath + strlen(htdocs), path, i - 1);
@@ -74,8 +79,8 @@ handle_get(char* htdocs)
 	dprint("httpd:: Flushing read buffer...\n");
     read_flush();
 
+    /* Cannot access file because it does not exist */
     if (stat(fPath, &buf) != 0) {
-        /* Cannot access file because it does not exist */
 		dprint("httpd:: Requested file does not exist, stat returned %s :(\n",
                 strerror(errno));
         send_initial_response(404);
@@ -84,8 +89,9 @@ handle_get(char* htdocs)
         return;
     }
     
+    /* stat(2) will return if file exists,
+       but we need to check if it is readable */
     if (access(fPath, R_OK) != 0) {
-        /* Do not have read access */
         dprint("httpd:: Do no have read access to the file, sending 403\n");
         send_initial_response(403);
         tcp_write("\r\n", 2);
@@ -93,13 +99,13 @@ handle_get(char* htdocs)
         return;
     }
     
+    /* Read contents of file into buffer */
     contents = (unsigned char*) calloc(buf.st_size, sizeof(unsigned char));    
-    
     f = fopen(fPath, "r+");
     fread(contents, sizeof(unsigned char), buf.st_size, f);
     fclose(f);
     
-    /* Send response */
+    /* Send response code */
 	dprint("httpd:: File found, sending headers and content\n");
     send_initial_response(200);
     
@@ -149,6 +155,7 @@ serve(char* htdocs)
 
     switch (method[0]) {
         case 'G':
+            /* It's a GET */
             if (method[1] == 'E' && method[2] == 'T' && method[3] == ' ') {
                 handle_get(htdocs);
                 tcp_close();

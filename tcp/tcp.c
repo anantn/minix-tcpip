@@ -55,7 +55,7 @@ static char state_names[][12] = {
 	"Time_Wait"
 };
 
-/* static allocation for retransmission buffer */
+/* Static allocation for retransmission buffer */
 static int      rt_present = 0;
 static int      rt_counter = 0;
 static Data     rt_data;
@@ -76,7 +76,6 @@ static Header   rt_hdr;
  * This function WILL modify the supplied header structure, make a copy
  * before using!
  */
-int CURRUPT_THIS_PACKET = 0;
 static int
 _send_tcp_packet(Header* hdr, Data* dat)
 {
@@ -101,14 +100,6 @@ _send_tcp_packet(Header* hdr, Data* dat)
 	memcpy(tmp, (uchar*) hdr, sizeof(Header));
 	memcpy(tmp + sizeof(Header), dat->content, dat->len);
 	csum = raw_checksum(tmp, sizeof(Header) + dat->len);
-
-	if (CURRUPT_THIS_PACKET > 0 )
-	{
-		--CURRUPT_THIS_PACKET ;
-		dprint("_send_tcp_packet:: currupting above packet\n");
-		csum += 123 ;
-		
-	}
 	memcpy(tmp + CHECK_OFF, (uchar*) & csum, sizeof(u16_t));
 
     /* Off it goes! */
@@ -1323,7 +1314,6 @@ swap_header(Header* hdr, int ntoh)
  * Print a TCP packet in compact form.
  * Displays the header values and first 10 bytes of the data 
  */
-
 static void
 show_packet(Header* hdr, Data* dat, int out)
 {   

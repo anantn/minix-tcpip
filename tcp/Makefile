@@ -1,8 +1,9 @@
+
 CC = cc
 AR = aal
 RANLIB = touch
 
-CFLAGS = -Wall -I/usr/local/include/cn -I../ip
+CFLAGS = -Wall -DDEBUG=$(DEBUG) -I/usr/local/include/cn -I../ip
 LDFLAGS = -L../ip -L/usr/local/lib -lip -lcn
 
 SOURCES = tcp.c
