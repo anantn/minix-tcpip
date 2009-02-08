@@ -76,6 +76,7 @@ static Header   rt_hdr;
  * This function WILL modify the supplied header structure, make a copy
  * before using!
  */
+int CURRUPT_THIS_PACKET = 0;
 static int
 _send_tcp_packet(Header* hdr, Data* dat)
 {
@@ -101,6 +102,13 @@ _send_tcp_packet(Header* hdr, Data* dat)
 	memcpy(tmp + sizeof(Header), dat->content, dat->len);
 	csum = raw_checksum(tmp, sizeof(Header) + dat->len);
 
+	if (CURRUPT_THIS_PACKET > 0 )
+	{
+		--CURRUPT_THIS_PACKET ;
+		dprint("_send_tcp_packet:: currupting above packet\n");
+		csum += 123 ;
+		
+	}
 	memcpy(tmp + CHECK_OFF, (uchar*) & csum, sizeof(u16_t));
 
     /* Off it goes! */
@@ -349,9 +357,7 @@ int
 tcp_read_socket(int socket, char* buf, int maxlen)
 {
 	int remaining_bytes = 0;
-	int bytes_reading = 0;
-	int can_read_max = 0;
-	int total_bytes_read = 0;
+	int bytes_read = 0;
 	int old_window, new_window;
 
     if (socket > last_conn)
@@ -366,45 +372,34 @@ tcp_read_socket(int socket, char* buf, int maxlen)
 	if (maxlen == 0)
 		return 0;
 
-    can_read_max = maxlen;
-	bytes_reading = total_bytes_read = 0;
-	
-    can_read_max = maxlen - total_bytes_read;
-        
     while (cc->in_buffer->len == 0) {
-        if (can_read(cc->state) == Closed) {
+        if (!can_read(cc->state)) {
             dprint("tcp_read:: Cannot read data in Closed state\n");
-		    if (total_bytes_read == 0) {
-			    return EOF;
-            } else {
-                return total_bytes_read;
-            }
+			return EOF;
 	    }
-	    dprint("tcp_read:: No data in read buffer, calling "
-	           "handle_packets\n");
+	    dprint("tcp_read:: No data in read buffer, calling handle_packets\n");
         handle_packets(socket);
     }
 
     old_window = DATA_SIZE - cc->in_buffer->len;
-    bytes_reading = MIN(cc->in_buffer->len, can_read_max);
+    bytes_read = MIN(cc->in_buffer->len, maxlen);
 	
     /* Copy from the in buffer into the one given by user */
-    memcpy(buf + total_bytes_read, cc->in_buffer->content, bytes_reading);
-    remaining_bytes = cc->in_buffer->len - bytes_reading;
+    memcpy(buf, cc->in_buffer->content, bytes_read);
+    remaining_bytes = cc->in_buffer->len - bytes_read;
 
     /* Not all of it was copied, so we move */
     if (remaining_bytes > 0) {
 	    memmove(cc->in_buffer->content,
-                (cc->in_buffer->content + bytes_reading),
-                remaining_bytes);
+                (cc->in_buffer->content + bytes_read), remaining_bytes);
 	}
     cc->in_buffer->len = remaining_bytes;
-    total_bytes_read += bytes_reading ;
 	
     /* Clear the data buffer */
     memset(cc->in_buffer->content + remaining_bytes, 0,
             (DATA_SIZE - remaining_bytes) * sizeof(uchar));
-    new_window = DATA_SIZE - cc->in_buffer->len;
+    
+	new_window = DATA_SIZE - cc->in_buffer->len;
     if (old_window == 0) {
 	    if (new_window != 0) {
 		    /**
@@ -417,8 +412,8 @@ tcp_read_socket(int socket, char* buf, int maxlen)
         }
     }
 
-	dprint("tcp_read:: Read %d bytes successfully\n", total_bytes_read);
-	return total_bytes_read;
+	dprint("tcp_read:: Read %d bytes successfully\n", bytes_read);
+	return bytes_read;
 }
 
 int
