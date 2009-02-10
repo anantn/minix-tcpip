@@ -303,9 +303,16 @@ tcp_connect(ipaddr_t dst, int port)
 int
 tcp_listen_socket(int socket, int port, ipaddr_t* src)
 {
+    int i;
     if (socket > last_conn)
         return -1;
-        
+    
+    /* Check if port is already not in use by another socket */
+    for (i = 0; i < last_conn; i) {
+        cc = &muxer[i];
+        if (cc->sport == port)
+            return -1;
+    }
     cc = &(muxer[socket]);
 
     /* Change the state */
