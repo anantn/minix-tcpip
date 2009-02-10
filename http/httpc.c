@@ -202,3 +202,6 @@ main(int argc, char** argv)
         return 1;
     }
 }
+
+/* vim: set ts=4 sw=4 expandtab tw=78: */
+

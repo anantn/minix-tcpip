@@ -12,3 +12,5 @@ int tcp_reliable_read(char* buf, int len);
 void read_flush(void);
 void chomp(int print);
 
+/* vim: set ts=4 sw=4 expandtab tw=78: */
+

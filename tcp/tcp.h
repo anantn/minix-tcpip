@@ -31,8 +31,8 @@ extern int CURRUPT_THIS_PACKET ;
 /* Some constants we will use later */
 #define DATA_SIZE   8148
 #define PACKET_SIZE 8192
-#define START_PORT	8090
-#define MAX_CONN	256
+#define START_PORT  8090
+#define MAX_CONN    256
 #define HEADER_SIZE 20
 #define CHECK_OFF   28
 #define HEADER_OFF  12
@@ -90,10 +90,10 @@ typedef struct _Data {
 
 /* One structure per connection */
 typedef struct _TCPCtl {
-	int socket;
-	u16_t sport;
-	u16_t dport;
-	ipaddr_t dst;
+    int socket;
+    u16_t sport;
+    u16_t dport;
+    ipaddr_t dst;
 
     uchar state;
     uchar type;
@@ -104,7 +104,7 @@ typedef struct _TCPCtl {
     u32_t remote_window ;
     
     Data* in_buffer;
-	Data* out_buffer;
+    Data* out_buffer;
     int remaining;
 } TCPCtl;
 
@@ -122,3 +122,5 @@ int tcp_close(void);
 int tcp_close_socket(int socket);
 
 #endif
+
+/* vim: set ts=4 sw=4 expandtab tw=78: */

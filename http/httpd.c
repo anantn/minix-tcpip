@@ -76,12 +76,12 @@ handle_get(char* htdocs)
     memcpy(fPath, htdocs, strlen(htdocs));
     memcpy(fPath + strlen(htdocs), path, i - 1);
     dprint("httpd:: File path determined: %s\n", fPath);
-	dprint("httpd:: Flushing read buffer...\n");
+    dprint("httpd:: Flushing read buffer...\n");
     read_flush();
 
     /* Cannot access file because it does not exist */
     if (stat(fPath, &buf) != 0) {
-		dprint("httpd:: Requested file does not exist, stat returned %s :(\n",
+        dprint("httpd:: Requested file does not exist, stat returned %s :(\n",
                 strerror(errno));
         send_initial_response(404);
         tcp_write("\r\n", 2);
@@ -106,7 +106,7 @@ handle_get(char* htdocs)
     fclose(f);
     
     /* Send response code */
-	dprint("httpd:: File found, sending headers and content\n");
+    dprint("httpd:: File found, sending headers and content\n");
     send_initial_response(200);
     
     /* Send Last-Modified */
@@ -191,3 +191,6 @@ main(int argc, char** argv)
     
     return serve(argv[1]);
 }
+
+/* vim: set ts=4 sw=4 expandtab tw=78: */
+
