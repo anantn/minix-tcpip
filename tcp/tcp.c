@@ -201,9 +201,14 @@ tcp_socket(void)
         return -1;
     }
 
+    /* Clear static allocation of connection array on first call */
+    if (last_conn == -1) {
+        memset(muxer, 0, MAX_CONN * sizeof(TCPCtl));
+    }
+
     /* Determine port and socket number (last_conn + 1) */
     last_conn++;
-    if (last_conn > 256) {
+    if (last_conn > MAX_CONN) {
         return -1;
     }
     ctl = &(muxer[last_conn]);
