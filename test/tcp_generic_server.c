@@ -28,13 +28,13 @@ main()
 			else ++c2 ;
 		}
 		
-		printf ( "Read %d bytes in this attempt 1 = %d,2 = %d\n", j, c1, c2 );
+		fprintf (stderr, "Read %d bytes in this attempt 1 = %d,2 = %d\n", j, c1, c2 );
         i += j;
         j = tcp_read(buf, 1024);
     }
-    printf("\n");
+    fprintf(stderr, "\n");
     i += j;
-    printf("%d bytes read! in total 1 = %d, 2 = %d\n\n", i, c1, c2);
+    fprintf(stderr, "%d bytes read! in total 1 = %d, 2 = %d\n\n", i, c1, c2);
     
     tcp_close();
     return 1;

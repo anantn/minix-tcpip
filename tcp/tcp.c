@@ -1,5 +1,6 @@
 #include "tcp.h"
 
+#define RETRANSMISSION_LIMIT 10
 /* Utility functions */
 static u16_t raw_checksum(uchar* dat, int len);
 static void swap_header(Header* hdr, int ntoh);
@@ -23,7 +24,7 @@ static int handle_Established_state(int socket, Header* hdr, Data* dat);
 
 /* Signal handling functions */
 static void alarm_signal_handler(int sig);
-static void reset_retransmission_buffer(int set, Header *hdr, Data *dat);
+static void set_retransmission_buffer(int set, Header *hdr, Data *dat);
 static void restore_app_alarm(void);
 static void (*ptr_original_signal_handler)(int sig) = SIG_IGN;
 static int previous_alarm_time = 0;
@@ -241,7 +242,7 @@ tcp_socket(void)
      * Now set the signal handler for SIGALARM, which will handle
      * retransmissions.
      */
-    reset_retransmission_buffer(0, NULL, NULL);
+    set_retransmission_buffer(0, NULL, NULL);
 
     return ctl->socket;
 }
@@ -270,8 +271,8 @@ tcp_connect_socket(int socket, ipaddr_t dst, int port)
     cc->dst = dst;
     
     /* Send SYN packet */
-    write_packet(socket, &buffer, 0, SYN);
     cc->state = Syn_Sent;
+    write_packet(socket, &buffer, 0, SYN);
     dprint("tcp_connect:: Done, calling handle_packets\n");
 
     while (cc->state != Established) {
@@ -571,7 +572,7 @@ tcp_close(void)
  * up the library's signal handler.
  */
 static void
-reset_retransmission_buffer(int set, Header* hdr, Data* dat)
+set_retransmission_buffer(int set, Header* hdr, Data* dat)
 {
     /* Initializing the retransmission buffer */
     rt_present = 0;
@@ -588,6 +589,7 @@ reset_retransmission_buffer(int set, Header* hdr, Data* dat)
         rt_data.len = dat->len;
         rt_present = 1;
         rt_counter = 0;
+		dprint ("setting retransmit signal handler\n");
         ptr_original_signal_handler = signal(SIGALRM, alarm_signal_handler);
        
         if (ptr_original_signal_handler == SIG_ERR) {
@@ -741,7 +743,7 @@ write_packet(int socket, char* buf, int len, int flags)
     }
     
     /* Put the packet into the list of unacked packets */
-    reset_retransmission_buffer(1, &hdr, &dat);
+    set_retransmission_buffer(1, &hdr, &dat);
 
     /**
      * Send the packet
@@ -804,7 +806,6 @@ is_valid_ack(int socket, u32_t local_seqno, u32_t remote_ackno)
     dprint("is_valid_ack:: Invalid ACK!\n");
     return 0;
 }
-
 /**
  * This function will receive a packet and check if it is an ACK that
  * we expected to receive. If it was, we reset the re-transmission alarm.
@@ -814,6 +815,7 @@ wait_for_ack(int socket, u32_t local_seqno)
 {
     cc = &(muxer[socket]);
     previous_alarm_time = alarm(RETRANSMISSION_TIMER);
+	dprint ("settign alarm for %d \n", RETRANSMISSION_TIMER);
 
     while (!is_valid_ack(socket, local_seqno, cc->remote_ackno)) {
         dprint("wait_for_ack:: Calling handle_packets\n");
@@ -836,7 +838,7 @@ wait_for_ack(int socket, u32_t local_seqno)
                 return -1;
             }
         }
-        if (rt_counter >= 4) {
+        if (rt_counter >= RETRANSMISSION_LIMIT) {
             cc->state = Closed;
             restore_app_alarm();
             return -1;
@@ -859,7 +861,8 @@ static void
 restore_app_alarm(void)
 {
     int time_missed;
-    reset_retransmission_buffer(0, NULL,NULL);
+	dprint ("Restroing app signals \n");
+    set_retransmission_buffer(0, NULL,NULL);
 
     if (signal(SIGALRM, ptr_original_signal_handler) == SIG_ERR) {
         dprint("tcp_socket:: Can't set signal handler!\n");
@@ -946,8 +949,8 @@ handle_packets(int socket)
                 return -1;
             }
         }
-        /* If we've retransmitted 5 times already, quit trying! */
-        if (rt_counter >= 5) {
+        /* If we've retransmitted retransmission limit already, quit trying! */
+        if (rt_counter >= RETRANSMISSION_LIMIT ) {
             cc->state = Closed;
             return -1;
         }
