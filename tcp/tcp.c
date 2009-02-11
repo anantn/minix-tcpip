@@ -230,7 +230,7 @@ tcp_socket(void)
     ctl->state = Closed;
 
     /* Use random generation for initial seq no */
-    ctl->local_seqno = random() % 1024;
+    ctl->local_seqno = rand() % 1024;
     
     /* These have to be set in three way handshake */
     ctl->remote_ackno = 0;
@@ -313,7 +313,7 @@ tcp_listen_socket(int socket, int port, ipaddr_t* src)
         return -1;
     
     /* Check if port is already not in use by another socket */
-    for (i = 0; i < last_conn; i) {
+    for (i = 0; i < last_conn; i++) {
         cc = &muxer[i];
         if (cc->sport == port)
             return -1;
@@ -906,7 +906,6 @@ socket_close(int socket)
     cc = &(muxer[socket]);
     cc->state = Closed;
     cc->sport = 0;
-    cc->seqno = 0;
     
     free(cc->in_buffer->content);
     free(cc->out_buffer->content);
