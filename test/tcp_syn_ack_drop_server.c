@@ -14,7 +14,7 @@ main(int argc, char** argv) {
 	ipaddr_t src_ip ;
 	int port_no = 6000 ;
 	/* DROP_FLOW_DIRECTION = TCP_LISTEN ;*/
-	/* DROP_PACKET_COUNTER = 1 ;*/
+	 DROP_PACKET_NO = 1 ;
 	
     ret = tcp_socket();
 	if (ret == -1)

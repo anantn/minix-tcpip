@@ -77,6 +77,10 @@ static Header   rt_hdr;
  * This function WILL modify the supplied header structure, make a copy
  * before using!
  */
+int DROP_PACKET_NO = 0 ;
+int CURRUPT_THIS_PACKET = 0 ;
+
+static int packet_sent_no = 0 ;
 static int
 _send_tcp_packet(Header* hdr, Data* dat)
 {
@@ -101,11 +105,29 @@ _send_tcp_packet(Header* hdr, Data* dat)
     memcpy(tmp, (uchar*) hdr, sizeof(Header));
     memcpy(tmp + sizeof(Header), dat->content, dat->len);
     csum = raw_checksum(tmp, sizeof(Header) + dat->len);
+	if (CURRUPT_THIS_PACKET > 0 )
+	{
+		csum += 123 ;
+        dprint("_send_tcp_packet:: currupting above packet \n");
+		--CURRUPT_THIS_PACKET ;
+
+		
+	}
     memcpy(tmp + CHECK_OFF, (uchar*) & csum, sizeof(u16_t));
 
     /* Off it goes! */
-    len = ip_send(hdr->dst, IP_PROTO_TCP, 2,
-        (void*) (tmp + HEADER_OFF), HEADER_SIZE + dat->len);
+	++packet_sent_no ;
+	if ( packet_sent_no == DROP_PACKET_NO )
+	{
+        dprint("_send_tcp_packet:: Dropping above packet\n");
+	}
+	else
+	{
+		len = ip_send(hdr->dst, IP_PROTO_TCP, 2,
+			(void*) (tmp + HEADER_OFF), HEADER_SIZE + dat->len);
+
+		
+	}
     free(tmp);
 
     return dat->len;
