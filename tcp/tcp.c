@@ -1035,6 +1035,10 @@ handle_Listen_state(int socket, Header* hdr, Data* dat)
         return -1;
     }
     
+    if (!(flags & ACK)) {
+        dprint("handle_Listen_state:: SYN + ACK got, which is not expected.. so ignoring!\n");
+        return -1;
+    }
     /* Get information about other side */
     cc->dst = hdr->src;
     cc->dport = hdr->sport;
