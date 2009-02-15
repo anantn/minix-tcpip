@@ -109,9 +109,7 @@ _send_tcp_packet(Header* hdr, Data* dat)
 	{
 		csum += 123 ;
         dprint("_send_tcp_packet:: currupting above packet \n");
-		--CURRUPT_THIS_PACKET ;
-
-		
+		--CURRUPT_THIS_PACKET;
 	}
     memcpy(tmp + CHECK_OFF, (uchar*) & csum, sizeof(u16_t));
 
@@ -155,7 +153,11 @@ _recv_tcp_packet(Header* hdr, Data* dat)
     if (len == -1) {
         return -1;
     }
-    
+
+    /* Make sure given structures have no residual junk values */
+    memset(hdr, 0, sizeof(Header));
+    memset(dat, 0, sizeof(Data));
+
     /* Extract header - pseudo and real, still in network order */
     hdr->src = src;
     hdr->dst = dst;
@@ -169,9 +171,11 @@ _recv_tcp_packet(Header* hdr, Data* dat)
     memcpy(tmp + HEADER_OFF, (uchar*) data, len);
     if (raw_checksum(tmp, HEADER_OFF + len) != 0) {
         /* Whoops, looks like this is a corrupted packet */
-        free(tmp);
+        if (len > 0)
+            free(data);
         dprint("_recv_tcp_packet:: Incorrect Checksum! Discarding packet...");
         dprint("Got: %x instead of 0\n", raw_checksum(tmp, HEADER_OFF + len));
+        free(tmp);
         return -1;
     }
     free(tmp);
@@ -191,7 +195,9 @@ _recv_tcp_packet(Header* hdr, Data* dat)
     
     memcpy(dat->content, (uchar*) data + doff, dat->len);
     show_packet(hdr, dat, 0);
-
+    
+    if (dat->len > 0) 
+        free(data);
     return dat->len;
 }
 
