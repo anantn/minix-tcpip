@@ -480,11 +480,13 @@ tcp_write_socket(int socket, char* buf, int len)
         packet_size = MIN(cc->remote_window, bytes_left);
         
         /* Make sure the other side is ready to read what we're sending */
-        while (packet_size == 0) {
-            dprint("tcp_write:: Remote window is empty %d(%d,%d), waiting\n",
+ /*       while (packet_size == 0) { */
+        if (packet_size == 0) {
+            dprint("tcp_write:: Remote window is empty %d(%d,%d), so sending packet with 1 byte data\n",
                     packet_size, cc->remote_window, bytes_left);
-            handle_packets(socket);
-            packet_size = MIN(cc->remote_window, bytes_left);
+/*            handle_packets(socket); */
+/*            packet_size = MIN(cc->remote_window, bytes_left); */
+            packet_size =  1 ; 
         }
 
         /* Send a packet */
@@ -1035,7 +1037,7 @@ handle_Listen_state(int socket, Header* hdr, Data* dat)
         return -1;
     }
     
-    if (!(flags & ACK)) {
+    if (flags & ACK) {
         dprint("handle_Listen_state:: SYN + ACK got, which is not expected.. so ignoring!\n");
         return -1;
     }
