@@ -27,8 +27,13 @@
 typedef unsigned char uchar;
 typedef unsigned short ushort;
 
+/*
 extern int CURRUPT_THIS_PACKET ;
 extern int DROP_PACKET_NO ;
+*/
+
+
+
 
 /* Some constants we will use later */
 #define DATA_SIZE   8148
