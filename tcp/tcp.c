@@ -205,12 +205,10 @@ tcp_socket(void)
 {
     TCPCtl* ctl;
 
-    if (ip_init() < 0) {
-        return -1;
-    }
-
     /* Clear static allocation of connection array on first call */
     if (last_conn == -1) {
+        if (ip_init() < 0)
+            return -1;
         memset(muxer, 0, MAX_CONN * sizeof(TCPCtl));
     }
 
