@@ -240,6 +240,8 @@ tcp_socket(void)
     ctl = &(muxer[last_conn]);
     ctl->socket = last_conn;
     ctl->sport = START_PORT + last_conn;
+    ctl->dport = 0;
+    ctl->dst = 0;
 
     /* Allocate memory for incoming buffer */
     ctl->in_buffer = (Data*) calloc(1, sizeof(Data));
@@ -987,13 +989,32 @@ handle_packets(int socket)
         }
     } while (len < 0);
 
-    /* Port mismatch */
+    /* checking if packet belongs to same connection or not */
+    /* src Port mismatch */
     if (hdr.dport != cc->sport) {
         dprint("handle_packets:: Received packet for wrong port %u, "
                "expecting %u\n", hdr.dport, cc->sport);
         return -1;
     }
-    
+
+    /* only for Listen state, u are allowed to 
+     * not not know destination address and port
+     * for all other states, you should only get packets
+     * which matches the destination parts also */
+    if ( cc->state != Listen ){
+        /* it means destination side is fixed, then we should match it ;-) */
+
+        /* NOTE : may be this packet belongs to other connection
+         * but rite now we r not checking it :-( 
+         * */
+        if (cc->dport != hdr.sport || cc->dst != hdr.src )
+        {
+            dprint("handle_packets:: Received packet from wrong " 
+                 " source IP/PORT, ignoring it\n" );
+            return -1;
+        }
+    }
+        
     dprint("handle_packets:: Dealing with %s\n", state_names[cc->state]);
     
     /* Handle state */
@@ -1044,10 +1065,12 @@ handle_Listen_state(int socket, Header* hdr, Data* dat)
         return -1;
     }
     
-    if (flags & ACK) {
-        dprint("handle_Listen_state:: SYN + ACK got, which is not expected.. so ignoring!\n");
+    /* here we are ready to tolarate PUSH and URGENT flags */
+    if (flags & ACK || flags & FIN || flags & RST) {
+        dprint("handle_Listen_state:: got packet with wrong flag,.... so ignoring!\n");
         return -1;
     }
+
     /* Get information about other side */
     cc->dst = hdr->src;
     cc->dport = hdr->sport;
@@ -1080,7 +1103,15 @@ handle_Syn_Sent_state(int socket, Header* hdr, Data* dat)
         dprint("handle_Syn_Sent_state: No SYN set, ignoring!\n");
         return -1;
     }
-    
+
+     /* here we are ready to tolarate PUSH and URGENT flags */
+    if (flags & FIN || flags & RST) {
+        dprint("handle_Syn_Sent_state:: got packet with wrong flag,"
+                ".... so ignoring!\n");
+        return -1;
+    }
+
+   
     if (flags & ACK) {
         /* Check if ackno received is correct or not */
         if (cc->local_seqno + 1 != hdr->ackno) {
@@ -1135,11 +1166,16 @@ handle_Syn_Recv_state(int socket, Header* hdr, Data* dat)
          */
         return (handle_Listen_state(socket, hdr, dat));
     }
-    
-    /**
-     * FIXME: What if we get a FIN packet at this stage?
-     * Move to Fin_Wait1?
-     */
+
+
+     /* here we are ready to tolarate PUSH and URGENT flags */
+    if (flags & FIN || flags & RST) {
+        dprint("handle_Syn_Recv_state:: got packet with wrong flag,"
+                ".... so ignoring!\n");
+        return -1;
+    }
+
+
 
     /* Got ACK, check if it is the correct one */
     if (cc->local_seqno + 1 != hdr->ackno) {
@@ -1181,6 +1217,27 @@ static int
 handle_Established_state(int socket, Header* hdr, Data* dat)
 {
     cc = &(muxer[socket]);
+
+    /* check the flags on packet */
+    /* SYN is invalid at this stage, RST is not supported 
+     * and ACK should b present in all packets except SYN 
+     * so, checking for it.
+     * */
+
+    if (hdr->flags & SYN || hdr->flags & RST || (!(hdr->flags & ACK)) ){
+         dprint("handle_Established_state:: Received incorrect packet, "
+               "with wrong flags set, ACKing with old ACK number\n");
+        /**
+         * Send an ack, just to tell other side that something is wrong.
+         */
+        send_ack(socket, 0);
+        return -1;
+    }
+
+    /* NOTE : We are ignoring the PUSH and URGENT flags as we are not
+     * supporting it and they are kind of harmless flags ;-)
+     * */
+
 
     /* FIXME: In the case of Closing state is the seqno incremented by 1? */
 
