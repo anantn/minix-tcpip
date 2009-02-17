@@ -91,48 +91,55 @@ The first connection to be created will always have a socket number of 0. Subseq
 
 \subsection{Port Allocation}
 We perform port allocation for new TCP connections using a simple global counter. The \texttt{START\_PORT} constant defines the first port number to be allocated, and subsequent TCP connections are simply assigned a port that is the sum of \texttt{START\_PORT} and it's socket number. Additionally, we also perform a check in \texttt{tcp\_listen} to ensure that the port number requested by the user is not already in use by iterating over all the array entries of currently active connections.
+
+\subsection{Honoring Window Size}
+Sometimes when a receiver's buffer is full, it will advertise a window size of 0. The sender is supposed to back off and send data only after waiting for some amount of time. Instead of implementing another alarm (complicated and prone to errors), in order to retransmit after some time of receiving a window size of 0; we simply set the remote window size to 1 byte instead. Thus, the sender will continue to send data packets of 1 byte each, which may or may not be dropped by the receiver depending on if the buffer has more space by then. This approach provides a fine balance between code complexity and behaving `nice' by not congesting the network too much, while honoring the advertised to a large extent.
+
+\subsection{Strictness}
+Our code is reasonably strict about the types of packets it receives, but not in a way that will disrupt the connection. Since we are not required to implement connection resets (\texttt{RST}), we simply ignore any packets that do not match our expectations and log the occurrence. An example of this is receiving a data packet with the \texttt{SYN} flag set when in an Established state. We will ignore this packet even though the rest of the packet has perfectly valid data.
+
+\subsection{Half-closed Connections}
+Our code supports half-closed connections, i.e. a client may continue to read out of a connection even after calling \texttt{tcp\_close} on it. This is very similar to the \texttt{shutdown} call in the context of UNIX sockets - closing a socket is only a promise not to write any more data, and doesn't specify anything about reading data out of it. Hence, no memory is released in the \texttt{tcp\_close} function, but only after we have ensured that both parties do not intend to read or write on that connection.
+
+Incidentally, our code also support simultaneous closes (and opens), as required by the RFC.
+
 \section{Testing}
+We performed extensive testing on our code by writing our own test programs. We implemented dropping and corruption of packets using global variables (\texttt{extern int}) that indicate the low level send function to do the action. This code is not included in the final submission because of interface requirements, because our tests also depend on the low level functions being non-static - hence some of the test programs will not run with the submitted code! Following is a list of test programs and a brief description of what they do:
 
-\section{points}
 \begin{itemize}
-\item There was little confusion about should we increase the sequence number
-after sending FIN packet. As per RFC, SYN packet and FIN packets are treated
-as single byte of data, and hence sequence number should be increased
-Reference : TCP RFC page 38-39 Figure-14 "Simultaneous close sequence"
-
-But after analysing the logs of test results, we realized that the reference tcp 
-implementation used for testing did not increment the sequence number after
-sending FIN packet. We decided to adhere the TCP test implementation and hance
-we do not increment the sequence number.
-the the sequence number by one after sending FIN packet. So
-
-\item In most cases, We have tried to make our library more tolerent to errors
-by not forcing all the rules. Whenever we get packet, we just check to see if
-the flags expected in next packet are set or not. If they are set then we
-ignore other flags even if they are set on assumption that those flags are set
-by mistake or for some other purpose which our library does not support 
-and hence accept the packet. We are not sure if this is correct approch, but
-we are following it because it makes more sense to us.
-
-\item To support half close connections, we need extra system call like
-\texttt{shutdown}, but as it was not part of the interface provided, the
-functionality of half close connections is implemented using single
-\texttt{tcp\_close} function. Sometimes this leads to inconsistency as one 
-side may call \texttt{tcp\_close} and \texttt{tcp\_close} returns when
-connection is half closed. The calling side may just exit the program without
-careing for other side of connection which is still in \texttt{close\_wait}
-state and still can send data.
-
-\item window size 0 is not allowed for technical prob of retransmission
-
-
-
+\item tcp\_ack\_drop: Drops an ACK packet and checks if we handle the case correctly.
+\item tcp\_actual\_chksum: Tests if our code calculates the checksum of a packer correctly.
+\item tcp\_alarm\_test: Tests if the library restores signal handlers set by the application before returning.
+\item tcp\_checksum\_test: Tests if corrupted packets are handled correctly.
+\item tcp\_chop: Checks if differing send and receive sizes are handled correctly (also tests the buffers on both ends extensively).
+\item tcp\_close\_parallel: Tests if our code supports parallel connections.
+\item tcp\_connect/tcp\_listen: Tests simple connect and listen functionality.
+\item tcp\_connect\_parallel: Tests if we handle simultaneous 3-way handshakes correctly.
+\item tcp\_listen\_multiple: Tests multiple connection support.
+\item tcp\_read\_after\_close: Tests if we support half-closed connections correctly.
+\item tcp\_syn\_ack\_drop: Tests if we handle SYN+ACK drops correctly.
+\item tcp\_wrap\_around: Tests if we handle wrap-around of very large sequence numbers correctly.
 \end{itemize}
-\section{Challenges}
+We also have two small tests for testing the HTTP client and server.
 
 \section{Known Limitations}
+\begin{itemize}
+\item As mentioned before, the global active connection count is not decremented when a connection is closed. This may lead to `holes' in the static array of connections, because connections can be closed in any order. Thus, the number of actually active connections may be less than \texttt{MAX\_CONN}. Our only guarantee is that \texttt{MAX\_CONN} connections may be \textit{created} by an application. This does not affect port number allocation though, because all port numbers for a particular connection are set to 0 whenever it is closed.
+
+\item In the case of multiple connections, it is possible for a deadlock to occur. Because our \texttt{tcp\_read} code ignores all packets that are not meant for the currently active connection, calling \texttt{tcp\_read} and \texttt{tcp\_write} in differing orders on two ends of a multi-connection program will result in a permanent deadlock as all packets sent by one end will be ignored by the other until the other end gives up.
+\end{itemize}
 
 \section{HTTP}
+Some useful details about our HTTP implementation:
+
+\begin{itemize}
+\item MIME types are simply determined using file extensions in our server. This may not be correct all the time as extensions may be misleading.
+\item Our HTTP server supports a maximum file path length of 256 characters.
+\item We perform hostname to IP translation using \texttt{gethostbyname} if an IP is not provided to the HTTP client.
+\item Any unknown headers are gracefully handled by both the server and client.
+\end{itemize}
+
+Our HTTP implementation is extremely simple (only a couple of hundred lines), and thus, we believe it does not require much explanation. There are no major design issues tackled in this part of the assignment. Code common to both the server and client is included in the \texttt{http.c} file, which contains utility functions mainly for header parsing and reliable reading (simply a loop that calls \texttt{tcp\_read} until all data requested is read).
 
 \end{document}
 

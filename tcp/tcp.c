@@ -1041,9 +1041,9 @@ handle_Listen_state(int socket, Header* hdr, Data* dat)
         return -1;
     }
     
-    /* here we are ready to tolarate PUSH and URGENT flags */
+    /* We are ready to tolarate PUSH and URGENT flags */
     if (flags & ACK || flags & FIN || flags & RST) {
-        dprint("handle_Listen_state:: got packet with wrong flag,.... so ignoring!\n");
+        dprint("handle_Listen_state:: Got packet with wrong flag... ignoring!\n");
         return -1;
     }
 
@@ -1080,10 +1080,9 @@ handle_Syn_Sent_state(int socket, Header* hdr, Data* dat)
         return -1;
     }
 
-     /* here we are ready to tolarate PUSH and URGENT flags */
+    /* We are ready to tolarate PUSH and URGENT flags */
     if (flags & FIN || flags & RST) {
-        dprint("handle_Syn_Sent_state:: got packet with wrong flag,"
-                ".... so ignoring!\n");
+        dprint("handle_Syn_Sent_state:: Got packet with wrong flag... ignoring!\n");
         return -1;
     }
 
@@ -1112,7 +1111,7 @@ handle_Syn_Sent_state(int socket, Header* hdr, Data* dat)
     }
 
     /* Got just a SYN packet => simultaneous open. */
-    dprint("handle_Syn_Sent_state:: Got just SYN, simultaneous open. "
+    dprint("handle_Syn_Sent_state:: Got just SYN, simultaneous open."
            "Sending SYN+ACK\n");
 
     cc->state = Syn_Recv;
