@@ -39,10 +39,18 @@ The following figure demonstrates how our functions are split across the layers 
 \includegraphics[scale=0.5]{layers.pdf}
 
 The public interface functions are skipped from the above figure, but they also belong to the layer which cares about state. These public functions merely set state variables of a connection and let \texttt{handle\_packets} interpret the rest. This layered design helped greatly in keeping our code as modular as possible. Also, because the interfaces between the layers are clearly defined, it was possible to split the work between the partners easily.
-\section{Implementation}
 
-\subsection{Interface methods}
-The approach described in the handbook was followed. No major departures from design decisions were made.
+\section{Features}
+For implementing the rest of the library, the approach described in the handbook was followed. In most cases we stuck to the expected behavior. However, there are some caveats (read ``features") in our library which are noted in this section.
+
+\subsection{Reliable Write}
+ While the general expectation is that \texttt{tcp\_write} will return as soon as possible, with writing only as many bytes as possible in a short time period, we decided to make our code deliver whatever data is provided, reliably. 
+
+Hence our implementation of \texttt{tcp\_write} will always have a return value of the number of bytes requested to be written (or an error), no matter how long it takes. We implemented this ``feature" because almost in all use cases we required this behavior, especially in the HTTP portion of the assignment. Instead of writing our own wrapper function that used  \texttt{tcp\_write} to deliver all of some data, we changed the underlying TCP code itself.
+
+While this approach makes it convenient for users of the library most of the times (all of the time in our test programs, and HTTP implementation), it can also prove to be a serious pitfall. One of the major disadvantages of this approach is that  \texttt{tcp\_write} will block forever if there is no corresponding  \texttt{tcp\_read} called on the other end. Not only does \texttt{tcp\_read} have to called on the other end, it has to be called enough times to exhaust all of the data that was requested to be written via  \texttt{tcp\_write}.
+
+It is easy to switch behavior to it's former requirement: it is achieved by simply uncommenting one line in  \texttt{tcp.c}. We considered creating a global variable that would control this, however, because of the additional public interface requirements in the test suite, decided against it.
 
 \subsection{Memory Management}
 We tried to minimize the use of dynamic memory as much as possible. However, we still do make use of it in the following places (listed along with where the memory is freed):
@@ -53,9 +61,36 @@ We tried to minimize the use of dynamic memory as much as possible. However, we 
 \item \textbf{\_recv\_tcp\_packet}: Once again, in order to verify the checksum (in network endian order), we allocate some memory for temporary use (freed at the end of the operation). Here, we also allocate the contents of a \texttt{Data} structure that will hold the body of the TCP packet received. This memory is freed by \textit{handle\_packets} after the user has safely copied the data. We also free the memory allocated by the IP library's \texttt{ip\_receive} method here.
 
 \item \textbf{tcp\_socket}: The incoming and outgoing \texttt{Data} buffers for a new TCP connection are allocated here. This memory is freed by \texttt{socket\_close} when this particular TCP connection is no longer needed.
-
-\item \textbf{send\_ack}: WTF?
 \end{itemize}
+Because of minimal dynamic memory allocation, we can reasonably confident that our code is free of memory leaks and possible invalid memory accesses.
+
+\subsection{Sequence Numbers}
+Three main points are to be covered on the topic of sequence numbers:
+
+\begin{itemize}
+\item \textbf{Increment for FIN?}: RFC 793 specifies (ref: Page 39, Fig 14) that SYN and FIN packets are treated as packets containing 1 byte of data, and thus, the sequence number is to be increased upon sending such a packet. However, we found that, in doing this, we were deemed incompatible with other TCP implementations as reported by the test suite. The reference TCP implementation does not increment it's sequence number after sending a FIN packet, and we decided to follow the same behavior (in the interest of passing all tests!).
+
+\item \textbf{Initial Allocation}: We use the \texttt{rand} system call in order to generate an initial sequence number. We restrict the number to modulo 1024 (an arbitrary limit, can be any reasonably small number), however, because we do not want the sequence number to be too large. This is because our code handles wrap-around on sequence numbers (explained in the next point).
+
+\item \textbf{Wrap-around Behavior}: In cases where a large amount of data is transmitted over a single TCP connection, it is possible that sequence numbers wrap-around, because they are 32bit integers. This case is handled (among others) in our \texttt{is\_valid\_ack} function. It is easy to detect a wrap-around, because we are expecting an ACK number greater than that we sent, but receive a number much lesser that the number of bytes we have already sent (and were ACKed).
+\end{itemize}
+
+\subsection{Multiple Connection Support}
+As mentioned before, our code supports creation of multiple TCP connections. We modeled our interface to be as close to existing `socket' behavior on UNIX systems. We return a unique `socket number' whenever a new connection is created using the \texttt{tcp\_socket} function. This number will uniquely identify that TCP connection throughout the subsequent session.
+
+In order to ensure backward compatibility with single connection support required by the original assignment, we simply created a new set of interface functions:\\
+\texttt{tcp\_connect\_socket}, \texttt{tcp\_listen\_socket}, \texttt{tcp\_read\_socket}, \texttt{tcp\_write\_socket} and \texttt{tcp\_close\_socket}. Their behavior is exactly the same as the single connection counterparts, except that the application can choose which TCP connection to apply the operation to by specifying it's unique socket number.
+
+During implementation, our initial approach was to create a linked list consisting of \texttt{TCPCtl} nodes, each representing a single connection. Each node would additionally store the socket number of that connection. This method would scale well, but proved to be a little cumbersome to implement. Creation and closing of sockets would result in several memory management functions and manipulation of the linked list, which provides a haven for sneaky memory related bugs.
+
+Thus, we chose to adopt a much more simpler approach: we simply create a static array of 256 (defined as \texttt{MAX\_CONN}) \texttt{TCPCtl} structures. The index of the array represents the unique socket number for that connection. We also maintain a global variable representing the number of currently active connections, so we know what socket number is to be returned on a subsequent call to \texttt{tcp\_socket}. However, this number is NOT decremented when a socket is closed - the implications of this are discussed in the `Known Limitations' section.
+
+Overall, we are very pleased with this simple interface and implementation of multiple connections. It provides us the optimum trade-off between code complexity and feature-set. While there are obvious pitfalls with our implementation, they work great for a majority of use cases while retaining a close similarity to the single connection version. Only minimal changes were required when we made the switch from single-connections to multiple-connections: since all functions already expected the global variable \texttt{cc} of type \texttt{TCPCtl} to represent the current active connection, we only had to set the pointer to an appropriate value (address at the index, which is also the socket number, of the global connection array) at the beginning of every function. Also since only one \texttt{tcp\_write} is active at any given time (it is a blocking function), only one retransmission buffer is required and alarms are set and handled only once per active connection - none of that code needed any changes to support multiple connections.
+
+The first connection to be created will always have a socket number of 0. Subsequent calls to \texttt{tcp\_socket} will return socket numbers in incremental order, upto \texttt{MAX\_CONN}. The single connection interface functions are are simple as calling their `\_socket' counterparts with a socket value of 0.
+
+\subsection{Port Allocation}
+We perform port allocation for new TCP connections using a simple global counter. The \texttt{START\_PORT} constant defines the first port number to be allocated, and subsequent TCP connections are simply assigned a port that is the sum of \texttt{START\_PORT} and it's socket number. Additionally, we also perform a check in \texttt{tcp\_listen} to ensure that the port number requested by the user is not already in use by iterating over all the array entries of currently active connections.
 \section{Testing}
 
 \section{points}
