@@ -30,7 +30,7 @@ main(int argc, char** argv) {
 	int port_no = 6000 ;
 
     /* This is that special variable */
-	DROP_PACKET_NO = 1 ;
+/*	DROP_PACKET_NO = 1 ;*/
 	
     ret = tcp_socket();
 	if (ret == -1)

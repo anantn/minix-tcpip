@@ -20,7 +20,7 @@ main()
 	printf ("\nData received of size %d is \n", len );
 	write (1, buf, len );
 	printf ("\nechoing it back to server\n");
-	CURRUPT_THIS_PACKET = 1 ;
+/*	CURRUPT_THIS_PACKET = 1 ; */
     i = tcp_write(buf, len);
 	printf ("\nData sent of size %dis \n", i );
     tcp_close();
