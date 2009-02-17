@@ -27,14 +27,6 @@
 typedef unsigned char uchar;
 typedef unsigned short ushort;
 
-/*
-extern int CURRUPT_THIS_PACKET ;
-extern int DROP_PACKET_NO ;
-*/
-
-
-
-
 /* Some constants we will use later */
 #define DATA_SIZE   8148
 #define PACKET_SIZE 8192
@@ -46,6 +38,7 @@ extern int DROP_PACKET_NO ;
 #define DATA_SHIFT  12
 #define WORD_SIZE   4
 #define RETRANSMISSION_TIMER 1
+#define RETRANSMISSION_LIMIT 10
 
 enum {
     URG = 0x20,

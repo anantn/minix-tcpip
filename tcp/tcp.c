@@ -1,6 +1,5 @@
 #include "tcp.h"
 
-#define RETRANSMISSION_LIMIT 10
 /* Utility functions */
 static u16_t raw_checksum(uchar* dat, int len);
 static void swap_header(Header* hdr, int ntoh);
@@ -77,10 +76,6 @@ static Header   rt_hdr;
  * This function WILL modify the supplied header structure, make a copy
  * before using!
  */
-static int DROP_PACKET_NO = 0 ;
-static int CURRUPT_THIS_PACKET = 0 ;
-
-static int packet_sent_no = 0 ;
 static int
 _send_tcp_packet(Header* hdr, Data* dat)
 {
@@ -105,29 +100,13 @@ _send_tcp_packet(Header* hdr, Data* dat)
     memcpy(tmp, (uchar*) hdr, sizeof(Header));
     memcpy(tmp + sizeof(Header), dat->content, dat->len);
     csum = raw_checksum(tmp, sizeof(Header) + dat->len);
-	if (CURRUPT_THIS_PACKET > 0 )
-	{
-		csum += 123 ;
-        dprint("_send_tcp_packet:: currupting above packet \n");
-		--CURRUPT_THIS_PACKET;
-	}
     memcpy(tmp + CHECK_OFF, (uchar*) & csum, sizeof(u16_t));
 
     /* Off it goes! */
-	++packet_sent_no ;
-	if ( packet_sent_no == DROP_PACKET_NO )
-	{
-        dprint("_send_tcp_packet:: Dropping above packet\n");
-	}
-	else
-	{
-		len = ip_send(hdr->dst, IP_PROTO_TCP, 2,
-			(void*) (tmp + HEADER_OFF), HEADER_SIZE + dat->len);
+    len = ip_send(hdr->dst, IP_PROTO_TCP, 2,
+            (void*) (tmp + HEADER_OFF), HEADER_SIZE + dat->len);
 
-		
-	}
     free(tmp);
-
     return dat->len;
 }
 
@@ -486,12 +465,10 @@ tcp_write_socket(int socket, char* buf, int len)
         packet_size = MIN(cc->remote_window, bytes_left);
         
         /* Make sure the other side is ready to read what we're sending */
- /*       while (packet_size == 0) { */
         if (packet_size == 0) {
-            dprint("tcp_write:: Remote window is empty %d(%d,%d), so sending packet with 1 byte data\n",
+            dprint("tcp_write:: Remote window is empty %d(%d,%d), "
+                   "sending window size to 1 byte\n",
                     packet_size, cc->remote_window, bytes_left);
-/*            handle_packets(socket); */
-/*            packet_size = MIN(cc->remote_window, bytes_left); */
             packet_size =  1 ; 
         }
 
@@ -619,7 +596,7 @@ set_retransmission_buffer(int set, Header* hdr, Data* dat)
         rt_data.len = dat->len;
         rt_present = 1;
         rt_counter = 0;
-		dprint ("setting retransmit signal handler\n");
+        dprint ("setting retransmit signal handler\n");
         ptr_original_signal_handler = signal(SIGALRM, alarm_signal_handler);
        
         if (ptr_original_signal_handler == SIG_ERR) {
@@ -845,7 +822,7 @@ wait_for_ack(int socket, u32_t local_seqno)
 {
     cc = &(muxer[socket]);
     previous_alarm_time = alarm(RETRANSMISSION_TIMER);
-	dprint ("settign alarm for %d \n", RETRANSMISSION_TIMER);
+    dprint ("wait_for_ack:: set alarm for %d \n", RETRANSMISSION_TIMER);
 
     while (!is_valid_ack(socket, local_seqno, cc->remote_ackno)) {
         dprint("wait_for_ack:: Calling handle_packets\n");
@@ -891,7 +868,7 @@ static void
 restore_app_alarm(void)
 {
     int time_missed;
-	dprint ("Restroing app signals \n");
+    dprint ("restore_app_alarm:: signals restored\n");
     set_retransmission_buffer(0, NULL,NULL);
 
     if (signal(SIGALRM, ptr_original_signal_handler) == SIG_ERR) {
