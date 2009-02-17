@@ -46,6 +46,7 @@ extern int DROP_PACKET_NO ;
 #define DATA_SHIFT  12
 #define WORD_SIZE   4
 #define RETRANSMISSION_TIMER 1
+#define RETRANSMISSION_LIMIT 10
 
 enum {
     URG = 0x20,

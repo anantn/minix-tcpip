@@ -1,6 +1,5 @@
 #include "tcp.h"
 
-#define RETRANSMISSION_LIMIT 10
 /* Utility functions */
 static u16_t raw_checksum(uchar* dat, int len);
 static void swap_header(Header* hdr, int ntoh);
@@ -226,12 +225,10 @@ tcp_socket(void)
 {
     TCPCtl* ctl;
 
-    if (ip_init() < 0) {
-        return -1;
-    }
-
     /* Clear static allocation of connection array on first call */
     if (last_conn == -1) {
+        if (ip_init() < 0)
+            return -1;
         memset(muxer, 0, MAX_CONN * sizeof(TCPCtl));
     }
 
@@ -338,14 +335,20 @@ int
 tcp_listen_socket(int socket, int port, ipaddr_t* src)
 {
     int i;
-    if (socket > last_conn)
+    if (socket > last_conn) {
+        dprint ("\nERROR: Invalid socket ID %d when it is supposed to be smaller than %d\n", socket, last_conn);
         return -1;
+    }
     
     /* Check if port is already not in use by another socket */
     for (i = 0; i < last_conn; i++) {
         cc = &muxer[i];
-        if (cc->sport == port)
-            return -1;
+        if ( i != socket ) {
+            if (cc->sport == port) {
+                dprint ("\nERROR: for socket %d, port %d already in use by socket %d\n", socket, port, i);
+                return -1;
+            }
+        }
     }
     cc = &(muxer[socket]);
 
@@ -486,12 +489,10 @@ tcp_write_socket(int socket, char* buf, int len)
         packet_size = MIN(cc->remote_window, bytes_left);
         
         /* Make sure the other side is ready to read what we're sending */
- /*       while (packet_size == 0) { */
         if (packet_size == 0) {
-            dprint("tcp_write:: Remote window is empty %d(%d,%d), so sending packet with 1 byte data\n",
+            dprint("tcp_write:: Remote window is empty %d(%d,%d), "
+                   "sending window size to 1 byte\n",
                     packet_size, cc->remote_window, bytes_left);
-/*            handle_packets(socket); */
-/*            packet_size = MIN(cc->remote_window, bytes_left); */
             packet_size =  1 ; 
         }
 
@@ -1269,9 +1270,10 @@ send_ack(int socket, int flags)
     int     bytes_sent;
     
     cc = &(muxer[socket]);
-
-    dat.content = (uchar*) calloc(DATA_SIZE, sizeof(uchar));
-    memset(dat.content, 0, DATA_SIZE);
+    /* allocation of memory is not needed here,
+     * we are doing it to maintain consitency for low level functions */
+    dat.content = (uchar*) calloc(1, sizeof(uchar));
+    memset(dat.content, 0, 1);
     memset(&hdr, 0, sizeof(hdr));
     dat.len = 0;
     setup_packet(socket, &hdr);

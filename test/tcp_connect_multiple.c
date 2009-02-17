@@ -38,12 +38,12 @@ main(int argc, char** argv)
 
 
 	fprintf(stderr,"\n====== sockets created, trying to connect\n");
-	ret = tcp_connect_socket (socket_1, 8090, dport);
+	ret = tcp_connect_socket (socket_1, dst_ip, 8090);
     if (ret == -1 )
     {
         fprintf(stderr,"\nconnect failed for socket_1\n");
     }
-   	ret = tcp_connect_socket (socket_2, 8091, dport);
+   	ret = tcp_connect_socket (socket_2, dst_ip, 8091);
     if (ret == -1 )
     {
         fprintf(stderr,"\nconnect failed for socket_2\n");
