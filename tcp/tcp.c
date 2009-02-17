@@ -76,10 +76,6 @@ static Header   rt_hdr;
  * This function WILL modify the supplied header structure, make a copy
  * before using!
  */
-int DROP_PACKET_NO = 0 ;
-int CURRUPT_THIS_PACKET = 0 ;
-
-static int packet_sent_no = 0 ;
 static int
 _send_tcp_packet(Header* hdr, Data* dat)
 {
@@ -104,29 +100,13 @@ _send_tcp_packet(Header* hdr, Data* dat)
     memcpy(tmp, (uchar*) hdr, sizeof(Header));
     memcpy(tmp + sizeof(Header), dat->content, dat->len);
     csum = raw_checksum(tmp, sizeof(Header) + dat->len);
-	if (CURRUPT_THIS_PACKET > 0 )
-	{
-		csum += 123 ;
-        dprint("_send_tcp_packet:: currupting above packet \n");
-		--CURRUPT_THIS_PACKET;
-	}
     memcpy(tmp + CHECK_OFF, (uchar*) & csum, sizeof(u16_t));
 
     /* Off it goes! */
-	++packet_sent_no ;
-	if ( packet_sent_no == DROP_PACKET_NO )
-	{
-        dprint("_send_tcp_packet:: Dropping above packet\n");
-	}
-	else
-	{
-		len = ip_send(hdr->dst, IP_PROTO_TCP, 2,
-			(void*) (tmp + HEADER_OFF), HEADER_SIZE + dat->len);
+    len = ip_send(hdr->dst, IP_PROTO_TCP, 2,
+            (void*) (tmp + HEADER_OFF), HEADER_SIZE + dat->len);
 
-		
-	}
     free(tmp);
-
     return dat->len;
 }
 
@@ -336,18 +316,14 @@ tcp_listen_socket(int socket, int port, ipaddr_t* src)
 {
     int i;
     if (socket > last_conn) {
-        dprint ("\nERROR: Invalid socket ID %d when it is supposed to be smaller than %d\n", socket, last_conn);
         return -1;
     }
     
     /* Check if port is already not in use by another socket */
     for (i = 0; i < last_conn; i++) {
         cc = &muxer[i];
-        if ( i != socket ) {
-            if (cc->sport == port) {
-                dprint ("\nERROR: for socket %d, port %d already in use by socket %d\n", socket, port, i);
-                return -1;
-            }
+        if (i != socket && cc->sport == port) {
+            return -1;
         }
     }
     cc = &(muxer[socket]);
@@ -620,7 +596,7 @@ set_retransmission_buffer(int set, Header* hdr, Data* dat)
         rt_data.len = dat->len;
         rt_present = 1;
         rt_counter = 0;
-		dprint ("setting retransmit signal handler\n");
+        dprint ("set_retransmission_buffer:: Setting signal handler\n");
         ptr_original_signal_handler = signal(SIGALRM, alarm_signal_handler);
        
         if (ptr_original_signal_handler == SIG_ERR) {
@@ -846,7 +822,7 @@ wait_for_ack(int socket, u32_t local_seqno)
 {
     cc = &(muxer[socket]);
     previous_alarm_time = alarm(RETRANSMISSION_TIMER);
-	dprint ("settign alarm for %d \n", RETRANSMISSION_TIMER);
+    dprint ("wait_for_ack:: Setting alarm for %d\n", RETRANSMISSION_TIMER);
 
     while (!is_valid_ack(socket, local_seqno, cc->remote_ackno)) {
         dprint("wait_for_ack:: Calling handle_packets\n");
@@ -892,7 +868,7 @@ static void
 restore_app_alarm(void)
 {
     int time_missed;
-	dprint ("Restroing app signals \n");
+    dprint ("restore_app_alarm:: Restored application's signal\n");
     set_retransmission_buffer(0, NULL,NULL);
 
     if (signal(SIGALRM, ptr_original_signal_handler) == SIG_ERR) {
