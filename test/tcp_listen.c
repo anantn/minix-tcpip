@@ -41,32 +41,6 @@ main(int argc, char** argv) {
     printf("\n===== Sent %d bytes!\n", tcp_write(info, len));
 	printf("\n===== closing connection\n");
 	tcp_close ();
-   	printf("\n===== Done closing, reading after closing\n");
-    len = tcp_read (info, DATA_SIZE);
-    printf("\n===== Received %d bytes! Dumping content:\n", len);
-	if (len == -1 )
-	{
-		printf ("\n===== connection closed by other side ") ;
-		return 1 ;	
-	}
-	strncpy (buffer, info, len);
-   	printf ("\n====== Data is %s \n", buffer);
-   	printf(" ===== Done\n");
-   	printf("\n===== trying one more read \n");
-    len = tcp_read (info, DATA_SIZE);
-	if (len == -1 )
-	{
-		printf ("\n===== connection closed by other side ") ;
-		return 1 ;	
-	}
-    printf("\n===== Received %d bytes! Dumping content:\n", len);
-	if (len == -1 )
-	{
-		printf ("\n===== connection closed by other side ") ;
-		return 1 ;	
-	}
-	strncpy (buffer, info, len);
-   	printf ("\n====== Data is %s \n", buffer);
    	printf(" ===== Done\n");
     return 1;
 }

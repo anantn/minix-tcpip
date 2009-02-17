@@ -2,7 +2,7 @@
 CFLAGS = -g -Wall -ansi -DDEBUG -DLINUX
 LDFLAGS = -I../ip-linux/ -I../tcp/ ../tcp/libtcp.a ../ip-linux/libip.a
 
-all: tcp_actual_chksum tcp_connect tcp_listen tcp_connect_parallel tcp_generic_server tcp_large_transfer http_test_server http_test_client tcp_close_parallel_client tcp_close_parallel_server tcp_chop_server tcp_chop_client tcp_checksum_test_client tcp_checksum_test_server tcp_syn_ack_drop_server tcp_syn_ack_drop_client tcp_ack_drop_client tcp_ack_drop_server
+all: tcp_actual_chksum tcp_connect tcp_listen tcp_connect_parallel tcp_generic_server tcp_large_transfer http_test_server http_test_client tcp_close_parallel_client tcp_close_parallel_server tcp_chop_server tcp_chop_client tcp_checksum_test_client tcp_checksum_test_server tcp_syn_ack_drop_server tcp_syn_ack_drop_client tcp_ack_drop_client tcp_ack_drop_server tcp_read_after_close_server tcp_read_after_close_client tcp_alarm_test_client  tcp_listen_multiple tcp_connect_multiple
 
 
 tcp_actual_chksum: tcp_actual_chksum.c
@@ -14,6 +14,13 @@ tcp_connect: tcp_connect.c
 
 tcp_listen: tcp_listen.c
 	gcc $(CFLAGS) -o tcp_listen tcp_listen.c $(LDFLAGS)
+
+tcp_connect_multiple: tcp_connect_multiple.c
+	gcc $(CFLAGS) -o tcp_connect_multiple tcp_connect_multiple.c $(LDFLAGS)
+
+tcp_listen_multiple: tcp_listen_multiple.c
+	gcc $(CFLAGS) -o tcp_listen_multiple tcp_listen_multiple.c $(LDFLAGS)
+
 
 tcp_connect_parallel: tcp_connect_parallel.c
 	gcc $(CFLAGS) -o tcp_connect_parallel tcp_connect_parallel.c $(LDFLAGS)
@@ -66,6 +73,16 @@ tcp_checksum_test_client:  tcp_checksum_test_client.c
 tcp_checksum_test_server:  tcp_checksum_test_server.c 
 	gcc $(CFLAGS) -o tcp_checksum_test_server tcp_checksum_test_server.c  $(LDFLAGS)
 
+tcp_read_after_close_server:  tcp_read_after_close_server.c 
+	gcc $(CFLAGS) -o tcp_read_after_close_server tcp_read_after_close_server.c  $(LDFLAGS)
+
+
+tcp_read_after_close_client:  tcp_read_after_close_client.c 
+	gcc $(CFLAGS) -o tcp_read_after_close_client tcp_read_after_close_client.c  $(LDFLAGS)
+
+tcp_alarm_test_client: tcp_alarm_test_client.c
+	gcc $(CFLAGS) -o tcp_alarm_test_client tcp_alarm_test_client.c  $(LDFLAGS)
+
 
 clean:
-	rm -f tcp_send tcp_recv tcp_actual_chksum tcp_connect tcp_listen tcp_connect_parallel tcp_generic_server tcp_large_transfer http_test_server http_test_client tcp_close_parallel_client tcp_close_parallel_server tcp_syn_ack_drop_server tcp_syn_ack_drop_client tcp_ack_drop_server tcp_ack_drop_client  tcp_wrap_around_client tcp_wrap_around_server tcp_chop_server tcp_chop_client tcp_checksum_test_client tcp_checksum_test_server tcp_ack_drop_client tcp_ack_drop_server
+	rm -f tcp_send tcp_recv tcp_actual_chksum tcp_connect tcp_listen tcp_connect_parallel tcp_generic_server tcp_large_transfer http_test_server http_test_client tcp_close_parallel_client tcp_close_parallel_server tcp_syn_ack_drop_server tcp_syn_ack_drop_client tcp_ack_drop_server tcp_ack_drop_client  tcp_wrap_around_client tcp_wrap_around_server tcp_chop_server tcp_chop_client tcp_checksum_test_client tcp_checksum_test_server tcp_ack_drop_client tcp_ack_drop_server tcp_read_after_close_server tcp_read_after_close_client tcp_alarm_test_client tcp_listen_multiple tcp_connect_multiple

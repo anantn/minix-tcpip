@@ -77,8 +77,8 @@ static Header   rt_hdr;
  * This function WILL modify the supplied header structure, make a copy
  * before using!
  */
-static int DROP_PACKET_NO = 0 ;
-static int CURRUPT_THIS_PACKET = 0 ;
+int DROP_PACKET_NO = 0 ;
+int CURRUPT_THIS_PACKET = 0 ;
 
 static int packet_sent_no = 0 ;
 static int

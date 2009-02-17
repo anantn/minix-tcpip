@@ -1,8 +1,9 @@
-/* This program can be used to test normal three way handshake
- * and simultaneous three way handshake */
+/* This program can be used to test the behaviour of library when SYN+ACK
+ * packet is dropped in three way handshake
+ **/
 
 /* run this program as follows
- * $ ETH=2 ./tcp_connect */
+ * $ ETH=2 ./tcp_syn_ack_drop_client */
 
 #include "tcp.h"
 
@@ -15,7 +16,6 @@ main(int argc, char** argv)
 	char info[DATA_SIZE] = MSG ;
 	char buffer[DATA_SIZE] ;
    	ipaddr_t dst_ip = inet_addr("192.168.0.1");
-/*    int sport = 9000;*/
     int dport = 6000;
 	int len  ;
 	int ret ;
@@ -38,11 +38,6 @@ main(int argc, char** argv)
 	strncpy (buffer, info, len);
    	printf ("\n====== Data is %s \n", buffer);
    	printf (" ====== Done\n");
-/*	strcpy (info, MSG2) ;
-	len = strlen (MSG2) ;
-	printf ("\n====== sending next set of data\n");
-    printf("\n====== Sent %d bytes!\n", tcp_write(info, len));
-*/
 	printf ("\n====== closing connection\n");
 	tcp_close ();
    	printf ("\n====== Done closing\n");

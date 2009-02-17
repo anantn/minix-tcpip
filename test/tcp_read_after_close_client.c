@@ -1,8 +1,7 @@
-/* This program can be used to test normal three way handshake
- * and simultaneous three way handshake */
+/* This program is designed to test read after close support */
 
 /* run this program as follows
- * $ ETH=2 ./tcp_connect */
+ * $ ETH=2 ./tcp_read_after_close_client */
 
 #include "tcp.h"
 
@@ -35,6 +34,10 @@ main(int argc, char** argv)
   	fprintf(stderr,"\n====== Received answer of %d bytes, Dumping content:\n", len); 
 	strncpy (buffer, info, len);
    	fprintf(stderr,"\n====== Data is %s \n", buffer);
+    strcpy (info, MSG2);
+    len = strlen (MSG2);
+    ret = tcp_write(info, len);
+    fprintf (stderr, "sent %d bytes of data\n", len);
    	fprintf(stderr," ====== Done\n");
 	fprintf(stderr,"\n====== closing connection\n");
 	tcp_close ();

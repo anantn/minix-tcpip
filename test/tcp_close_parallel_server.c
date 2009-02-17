@@ -1,4 +1,5 @@
 #include <tcp.h>
+/* Objective : Both sides will call close simultaneously */
 
 /* To run this program 
  ETH=1 ./tcp_close_parallel_server

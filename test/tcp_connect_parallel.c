@@ -3,7 +3,14 @@
 
 /* run this program as follows
  * $ ETH=1 ./tcp_connect_parallel */
+/* On other side, run same program or tcp_connect program 
+ * $ ETH=2 ./tcp_connect
+ * */
 
+/*
+ * Logic: both sides will call tcp_connect which will cause simultaneous
+ * connect from both sides
+ * */
 #include "tcp.h"
 
 #define MSG "bye bye world!"
@@ -12,12 +19,9 @@ main(int argc, char** argv)
 {
 	char info[DATA_SIZE] = MSG ;
    	ipaddr_t dst_ip = inet_addr("192.168.0.2");
-/*    int sport = 9000;*/
     int dport = 8090;
 	int len ;
 	int ret, i ;
-
-    
 	
 	len = strlen (MSG);
     
@@ -33,7 +37,6 @@ main(int argc, char** argv)
     fprintf(stderr,"\n=== Sent %d bytes!\n", tcp_write(info, len));
 	len = tcp_read (info, DATA_SIZE);
    	fprintf(stderr,"\n=== Received answer of %d bytes, Dumping content:\n", len); 
-   	/* dump_buffer ((uchar *)info, len); */
    	fprintf(stderr,"\n=== Data is \n=== ");
 	for (i = 0 ; i < len ; ++i ) fprintf(stderr,"%c", info[i]);
    	fprintf(stderr," === \n=== Done\n");
