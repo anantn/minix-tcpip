@@ -1,8 +1,8 @@
-/* This program can be used to test normal three way handshake
- * and simultaneous three way handshake */
+/* This program can be used to test the drop of ack packet 
+ **/
 
 /* run this program as follows
- * $ ETH=2 ./tcp_connect */
+ * $ ETH=2 ./tcp_ack_drop_client */
 
 #include "tcp.h"
 
@@ -20,7 +20,8 @@ main(int argc, char** argv)
 	int len  ;
 	int ret ;
 
-	DROP_PACKET_NO = 2 ;
+/*  special variable which drops the packets */
+/*	DROP_PACKET_NO = 2 ; */
     
 	len = strlen (MSG);
     

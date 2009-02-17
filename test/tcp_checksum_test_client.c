@@ -18,7 +18,7 @@ main()
     buf = (char*)calloc(100, sizeof(char));
 	strcpy (buf, "foo ");
 	printf ("sending data %s of len %d\n", buf, strlen(buf));
-	CURRUPT_THIS_PACKET = 1 ;
+/*	CURRUPT_THIS_PACKET = 1 ; */
     ret = tcp_write(buf, strlen(buf));
 	printf ("sent %d bytes successfully\n", ret );
 	printf ("waiting for response\n" );

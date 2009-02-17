@@ -1,7 +1,9 @@
-/* This program can be used to test normal three way handshake */
+/* This program can be used to test the drop of ack packet 
+ **/
 
 /* run this program as follows
- * $ ETH=1 ./tcp_listen */
+ * $ ETH=2 ./tcp_ack_drop_server */
+
 
 #include "tcp.h"
 #define ANSWER "Thanx for reply..!!!"
@@ -13,8 +15,6 @@ main(int argc, char** argv) {
 	char buffer[DATA_SIZE];
 	ipaddr_t src_ip ;
 	int port_no = 1234 ;
-/*	DROP_FLOW_DIRECTION = TCP_LISTEN ; 
-	DROP_PACKET_NO = 1 ;*/
 	
     ret = tcp_socket();
 	if (ret == -1 )
